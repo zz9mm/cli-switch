@@ -1,3 +1,13 @@
+---
+id: decision-default-to-guided-profile-management
+type: decision
+title: 默认采用引导式配置档管理
+status: active
+created: 2026-07-24
+updated: 2026-07-24
+tags: [clis, claude-code, profile, ux]
+---
+
 # 默认采用引导式配置档管理
 
 ## 一句话结论
@@ -29,8 +39,8 @@
 
 交互层需要同时支持终端选择、无回显输入、取消和确认；适配器层应保持可由参数命令调用，以满足自动化需求。
 
-## 减少后续探索
+## 探索减负
 
-- 下次少问：默认交互模式与创建、复制的边界。
-- 下次少查：API URL、API Key 与模型是否应出现在创建向导中。
+- 下次可以少问什么：默认交互模式与创建、复制的边界。
+- 下次可以少查什么：API URL、API Key 与模型是否应出现在创建向导中。
 - 失效条件：目标用户改为完全由 CI 或脚本管理配置，且明确不需要交互式操作。

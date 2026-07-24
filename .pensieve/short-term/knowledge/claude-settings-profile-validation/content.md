@@ -1,3 +1,13 @@
+---
+id: knowledge-claude-settings-profile-validation
+type: knowledge
+title: Claude Settings Profile Validation
+status: active
+created: 2026-07-24
+updated: 2026-07-24
+tags: [clis, claude-code, settings, validation]
+---
+
 # Claude Settings Profile Validation
 
 ## Source
