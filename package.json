@@ -1,0 +1,16 @@
+{
+  "name": "clis",
+  "version": "0.1.0",
+  "description": "CLI profile manager for AI coding tools (Claude Code first)",
+  "license": "MIT",
+  "bin": {
+    "clis": "bin/clis.js"
+  },
+  "main": "src/cli.js",
+  "scripts": {
+    "test": "node --test 'test/**/*.test.js'"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
