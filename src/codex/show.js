@@ -215,6 +215,11 @@ async function editViaGuided(name) {
   const auth = store.readAuth(name);
   const curKey = auth && typeof auth.OPENAI_API_KEY === 'string' ? auth.OPENAI_API_KEY : '';
 
+  // 读出原 section 的 requires_openai_auth，重建时原样保留（默认 true）。
+  const authFlagLine = providerSections[0].lines.find((l) => /^\s*requires_openai_auth\s*=/.test(l));
+  const authFlagMatch = authFlagLine && authFlagLine.match(/=\s*(true|false)/);
+  const curRequiresAuth = authFlagMatch ? authFlagMatch[1] === 'true' : true;
+
   const urlRes = await prompts({
     type: 'text',
     name: 'baseUrl',
@@ -265,6 +270,7 @@ async function editViaGuided(name) {
     wireApi: s.wireApi || 'responses',
     model: newModel || s.model,
     reasoningEffort: newEffort || s.reasoningEffort,
+    requiresOpenaiAuth: curRequiresAuth,
   });
   const nextAuth = newKey ? { OPENAI_API_KEY: newKey } : auth;
 

@@ -250,3 +250,14 @@ test('overwrite 为不管理密钥时清除残留 auth.json', () => {
     env.cleanup();
   }
 });
+
+test('buildToml 保留 requiresOpenaiAuth=false，默认仍为 true', () => {
+  const off = buildToml({
+    provider: 'p', baseUrl: 'https://x.com', wireApi: 'chat', model: 'm', reasoningEffort: '', requiresOpenaiAuth: false,
+  });
+  assert.match(off, /requires_openai_auth = false/);
+  const def = buildToml({
+    provider: 'p', baseUrl: 'https://x.com', wireApi: 'chat', model: 'm', reasoningEffort: '',
+  });
+  assert.match(def, /requires_openai_auth = true/);
+});

@@ -26,8 +26,9 @@ const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 /**
  * 由引导输入构造受管 TOML 片段。
  * 只包含 clis 受管的内容：模型/provider 顶层键 + [model_providers.<name>]。
+ * requiresOpenaiAuth 默认 true；编辑既有配置档时须传入原值，避免静默翻转。
  */
-function buildToml({ provider, baseUrl, wireApi, model, reasoningEffort }) {
+function buildToml({ provider, baseUrl, wireApi, model, reasoningEffort, requiresOpenaiAuth = true }) {
   const lines = [
     `model_provider = ${tomlString(provider)}`,
     `model = ${tomlString(model)}`,
@@ -39,7 +40,7 @@ function buildToml({ provider, baseUrl, wireApi, model, reasoningEffort }) {
     `name = ${tomlString(provider)}`,
     `base_url = ${tomlString(baseUrl)}`,
     `wire_api = ${tomlString(wireApi)}`,
-    'requires_openai_auth = true',
+    `requires_openai_auth = ${requiresOpenaiAuth ? 'true' : 'false'}`,
   );
   return lines.join('\n') + '\n';
 }
