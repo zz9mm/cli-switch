@@ -1,8 +1,8 @@
 # Pensieve Project State
 
 ## Lifecycle State
-- Last Event: auto-sync
-- Last Note: posttooluse Write: decisions/2026-07-26-codex-managed-merge.md
+- Last Event: self-improve
+- Last Note: auto-improve: maxims/overwrite-must-delete-absent-optional-files.md
 
 ## Project Paths
 - Project Root: `D:/code/2026/cli-switch`
