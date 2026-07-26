@@ -1,8 +1,8 @@
 # Pensieve Project State
 
 ## Lifecycle State
-- Last Event: self-improve
-- Last Note: extracted 1 decision (editor blank no template) + 1 knowledge (model tier env)
+- Last Event: auto-sync
+- Last Note: posttooluse Write: decisions/2026-07-26-codex-managed-merge.md
 
 ## Project Paths
 - Project Root: `D:/code/2026/cli-switch`
