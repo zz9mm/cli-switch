@@ -151,6 +151,21 @@ test('createProfile 原子写入并设置权限', () => {
   delete process.env.CLIS_CONFIG_HOME;
 });
 
+test('listProfiles 跳过非法名称目录，不崩溃', () => {
+  const env = setupEnv('clis-test-list-');
+  try {
+    env.profiles.createProfile('valid-one', { env: { ANTHROPIC_MODEL: 'm' } });
+    // 手放的备份目录 / 编辑器临时目录：含空格、点、中文的非法名称。
+    const dir = path.join(process.env.CLIS_CONFIG_HOME, 'claude', 'profiles');
+    fs.mkdirSync(path.join(dir, 'backup.old'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'my profile'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '旧配置'), { recursive: true });
+    assert.deepStrictEqual(env.profiles.listProfiles(), ['valid-one']);
+  } finally {
+    env.cleanup();
+  }
+});
+
 test('deleteProfile 删除目录、防穿越、清理当前状态', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'clis-del-'));
   process.env.CLIS_CONFIG_HOME = tmp;

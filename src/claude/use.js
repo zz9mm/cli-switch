@@ -95,8 +95,13 @@ async function runUse(presetName) {
     // —— 非交互：clis claude use <名称> ——
     if (presetName) {
       assertValidProfileName(presetName);
-      const settings = profiles.profileExists(presetName) ? tryRead(presetName) : null;
-      if (!settings) throw new Error(`配置档不存在: ${presetName}`);
+      if (!profiles.profileExists(presetName)) {
+        throw new Error(`配置档不存在: ${presetName}`);
+      }
+      const settings = tryRead(presetName);
+      if (!settings) {
+        throw new Error(`配置档 JSON 损坏，已中止切换: ${presetName}`);
+      }
       printPreview(presetName, settings);
       const { backupPath } = applyProfile(presetName);
       printApplied(presetName, backupPath);

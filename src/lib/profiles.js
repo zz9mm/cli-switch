@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const paths = require('./paths');
 const { ensureDir, atomicWriteFile } = require('./fsutil');
-const { assertValidProfileName } = require('./validate');
+const { assertValidProfileName, isValidProfileName } = require('./validate');
 
 /**
  * 配置档持久层。
@@ -33,8 +33,10 @@ function listProfiles() {
   } catch {
     return [];
   }
+  // 遍历时先过滤非法名称（校验函数只守入口，不当过滤器用）：
+  // 手放的备份目录、编辑器临时目录等不应让整个列表崩溃。
   return entries
-    .filter((e) => e.isDirectory())
+    .filter((e) => e.isDirectory() && isValidProfileName(e.name))
     .map((e) => e.name)
     .filter((name) => profileExists(name))
     .sort();
