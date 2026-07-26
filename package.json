@@ -1,7 +1,7 @@
 {
   "name": "clis",
   "version": "0.1.0",
-  "description": "CLI profile manager for AI coding tools (Claude Code first)",
+  "description": "CLI profile manager for AI coding tools (Claude Code and Codex)",
   "license": "MIT",
   "bin": {
     "clis": "bin/clis.js"
