@@ -81,6 +81,27 @@ test('buildSettings 鉴权方式：api_key vs bearer', () => {
   assert.strictEqual(c.env.ANTHROPIC_API_KEY, 'k3');
 });
 
+test('buildSettings 档位映射：写入非空档位，忽略空值与缺省', () => {
+  const s = buildSettings({
+    baseUrl: 'https://x',
+    apiKey: 'k',
+    model: 'k3[1M]',
+    authType: 'bearer',
+    tierModels: {
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'k3[1M]',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'k3',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: '',
+    },
+  });
+  assert.strictEqual(s.env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'k3[1M]');
+  assert.strictEqual(s.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'k3');
+  assert.ok(!('ANTHROPIC_DEFAULT_SONNET_MODEL' in s.env));
+
+  // 缺省 tierModels 时行为与之前一致
+  const plain = buildSettings({ baseUrl: 'https://x', apiKey: 'k', model: 'm' });
+  assert.ok(!Object.keys(plain.env).some((k) => k.startsWith('ANTHROPIC_DEFAULT_')));
+});
+
 test('脱敏同时覆盖 AUTH_TOKEN', () => {
   const s = buildSettings({ baseUrl: 'https://x', apiKey: 'sk-bearer-secret-9999', authType: 'bearer' });
   const masked = maskSettingsForDisplay(s);

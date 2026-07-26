@@ -27,17 +27,24 @@ class CancelError extends Error {
  * @param {'api_key'|'bearer'} authType 鉴权方式：
  *   - api_key：写入 ANTHROPIC_API_KEY（x-api-key 头，官方 Anthropic）。
  *   - bearer：写入 ANTHROPIC_AUTH_TOKEN（Authorization: Bearer，第三方如 Kimi）。
+ * @param {Object} [tierModels] 可选的档位映射，如
+ *   { ANTHROPIC_DEFAULT_OPUS_MODEL: 'k3' }；缺省或空值时不写入。
  */
-function buildSettings({ baseUrl, apiKey, model, authType = 'api_key' }) {
+function buildSettings({ baseUrl, apiKey, model, authType = 'api_key', tierModels }) {
   const env = { ANTHROPIC_BASE_URL: baseUrl };
   if (authType === 'bearer') env.ANTHROPIC_AUTH_TOKEN = apiKey;
   else env.ANTHROPIC_API_KEY = apiKey;
   if (model) env.ANTHROPIC_MODEL = model;
+  if (tierModels) {
+    for (const [key, value] of Object.entries(tierModels)) {
+      if (value) env[key] = value;
+    }
+  }
   return { env };
 }
 
 /**
- * 交互式引导填写：URL、隐藏输入 Key、动态拉取并选择模型。
+ * 交互式引导填写：URL、隐藏输入 Key、动态拉取并选择模型，可选为各档位单独映射模型。
  *
  * 当前仅支持中转（Auth Token / Bearer）方式，固定写入 ANTHROPIC_AUTH_TOKEN。
  * 官方 x-api-key 方式暂不提供选择（buildSettings 仍保留 authType 以便将来恢复）。
@@ -60,28 +67,39 @@ async function guidedInput() {
     validate: (v) => (v && v.length > 0 ? true : 'Auth Token 不能为空'),
   }, { onCancel });
 
-  const model = await pickModel({ baseUrl, authType, apiKey });
+  const ids = await fetchModelIds({ baseUrl, authType, apiKey });
 
-  return buildSettings({ baseUrl, apiKey, model, authType });
+  const model = await pickModel(ids);
+
+  const tierModels = await pickTierModels(ids, model);
+
+  return buildSettings({ baseUrl, apiKey, model, authType, tierModels });
 }
 
 /**
- * 尝试从端点动态拉取模型列表供选择；失败则回退为手动输入。
- * 始终追加「自定义（手动输入）」选项。
+ * 拉取端点模型列表；失败或为空时打印原因并返回空数组（调用方回退手动输入）。
+ * 错误信息由 models 模块保证不含密钥。
  */
-async function pickModel({ baseUrl, authType, apiKey }) {
-  let ids = [];
+async function fetchModelIds({ baseUrl, authType, apiKey }) {
   try {
     process.stdout.write('正在拉取可用模型…\n');
-    ids = await fetchModels(baseUrl, { authType, key: apiKey });
+    const ids = await fetchModels(baseUrl, { authType, key: apiKey });
+    if (!ids.length) {
+      console.log('端点未返回任何模型，改为手动输入。');
+    }
+    return ids;
   } catch (err) {
-    // 错误信息由 models 模块保证不含密钥。
     console.log(`拉取模型失败（${err.message}），改为手动输入。`);
-    return manualModel();
+    return [];
   }
+}
 
+/**
+ * 从已拉取的模型列表选择主模型；列表为空回退手动输入。
+ * 始终追加「自定义（手动输入）」选项。
+ */
+async function pickModel(ids) {
   if (!ids.length) {
-    console.log('端点未返回任何模型，改为手动输入。');
     return manualModel();
   }
 
@@ -96,6 +114,54 @@ async function pickModel({ baseUrl, authType, apiKey }) {
   }, { onCancel });
 
   return choice === CUSTOM_MODEL ? manualModel() : choice;
+}
+
+/**
+ * Claude Code 的模型档位：未单独配置时各档位回落到 ANTHROPIC_MODEL。
+ */
+const MODEL_TIERS = [
+  { key: 'ANTHROPIC_DEFAULT_OPUS_MODEL', label: 'Opus' },
+  { key: 'ANTHROPIC_DEFAULT_SONNET_MODEL', label: 'Sonnet' },
+  { key: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', label: 'Haiku' },
+  { key: 'ANTHROPIC_DEFAULT_FABLE_MODEL', label: 'Fable' },
+];
+
+/**
+ * 可选步骤：为各档位单独映射模型（中转端常见用法：全部档位指向同一模型，
+ * 或按档位分流到不同模型）。默认不配置，保持单模型行为。
+ *
+ * @param {string[]} ids 已拉取的模型列表（为空时只提供沿用/自定义）。
+ * @param {string} primaryModel 主模型（ANTHROPIC_MODEL）。
+ * @returns {Object} 形如 { ANTHROPIC_DEFAULT_OPUS_MODEL: 'k3' } 的映射。
+ */
+async function pickTierModels(ids, primaryModel) {
+  const { want } = await prompts({
+    type: 'confirm',
+    name: 'want',
+    message: '需要为 Opus/Sonnet/Haiku/Fable 档位单独映射模型吗？（默认否，各档位沿用主模型）',
+    initial: false,
+  }, { onCancel });
+  if (!want) return {};
+
+  const tierModels = {};
+  for (const tier of MODEL_TIERS) {
+    const choices = [
+      { title: '不设置（回落到主模型）', value: '' },
+      { title: `沿用主模型（${primaryModel}）`, value: primaryModel },
+      ...ids.filter((id) => id !== primaryModel).map((id) => ({ title: id, value: id })),
+      { title: '自定义（手动输入）…', value: CUSTOM_MODEL },
+    ];
+    const { choice } = await prompts({
+      type: 'select',
+      name: 'choice',
+      message: `${tier.label} 档位映射到哪个模型`,
+      choices,
+      initial: 1,
+    }, { onCancel });
+    if (!choice) continue;
+    tierModels[tier.key] = choice === CUSTOM_MODEL ? await manualModel() : choice;
+  }
+  return tierModels;
 }
 
 async function manualModel() {
@@ -118,21 +184,13 @@ function isValidApiUrlLoose(v) {
 }
 
 /**
- * 编辑器模式：给出一份模板，用户编辑后做 JSON 校验。
+ * 编辑器模式：打开空白文件，用户自行编写完整 JSON，保存后做 JSON 校验。
  */
 async function editorInput() {
-  const template = JSON.stringify(
-    {
-      env: {
-        ANTHROPIC_BASE_URL: 'https://api.moonshot.cn/anthropic',
-        ANTHROPIC_AUTH_TOKEN: '',
-        ANTHROPIC_MODEL: 'kimi-k2-0905-preview',
-      },
-    },
-    null,
-    2,
-  );
-  const edited = editInEditor(template + '\n', { suffix: '.json' });
+  const edited = editInEditor('', { suffix: '.json' });
+  if (!edited.trim()) {
+    throw new Error('配置内容为空');
+  }
   let parsed;
   try {
     parsed = JSON.parse(edited);
