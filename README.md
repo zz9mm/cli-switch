@@ -2,7 +2,7 @@
 
 为 AI 编码工具（首先支持 Claude Code）管理多份 API 配置档，方便在不同服务商 / 模型之间切换。
 
-> 当前进度：已实现 **创建配置档**（计划 `01`）与 **删除配置档**（计划 `05`），并搭好共享骨架供 02–04 扩展。
+> 当前进度：计划 `01`–`05` 全部实现（创建 / 切换 / 复制 / 查看编辑 / 删除）。
 
 ## 安装
 
@@ -26,6 +26,12 @@ clis          # 选择 “Claude Code” → “创建配置档”
 
 ```bash
 clis claude create <名称>
+clis claude use <名称>            # 切换为指定配置档（先备份现有配置）
+clis claude current               # 显示当前由 clis 应用的配置档
+clis claude copy current <新名称>  # 把当前生效配置存为配置档
+clis claude copy <来源> <新名称>   # 复制既有配置档（非交互不覆盖同名）
+clis claude show <名称>           # 查看摘要（密钥脱敏）
+clis claude edit <名称>           # 引导更新或编辑器编辑 JSON
 clis claude delete <名称> --yes   # 非交互删除需显式 --yes 确认
 ```
 
@@ -34,9 +40,29 @@ clis claude delete <名称> --yes   # 非交互删除需显式 --yes 确认
 - **从空白配置引导填写**：依次输入 API URL、选择鉴权方式、隐藏输入 Key，然后**从端点动态拉取模型列表**供选择。
   - 鉴权方式：`API Key`（写入 `ANTHROPIC_API_KEY`，走 `x-api-key`，官方 Anthropic）或 `Auth Token`（写入 `ANTHROPIC_AUTH_TOKEN`，走 `Authorization: Bearer`，适配 Kimi/Moonshot 等第三方）。
   - 模型：请求 `{base}/v1/models` 拉取真实可用模型；拉取失败（网络/鉴权错）自动回退为手动输入，不会卡住。
-- **在编辑器中编辑 JSON**：用 `$VISUAL` / `$EDITOR` 打开模板，保存后做 JSON 校验（高级字段走这里）。
+  - 档位映射（可选）：主模型之外，可再为 Opus / Sonnet / Haiku / Fable 档位分别映射模型（写入 `ANTHROPIC_DEFAULT_<档位>_MODEL`，中转端常用）；默认不配置，各档位沿用主模型。
+- **在编辑器中编辑 JSON**：用 `$VISUAL` / `$EDITOR` 打开空白文件编写完整 JSON，保存后做 JSON 校验（高级字段走这里）。
 
 保存前会展示 **脱敏预览**（`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` 只显示头尾），确认后写入。
+
+### 切换配置档
+
+- 列表显示名称 / 模型 / 主机 / 最近使用时间（**不含密钥**），确认后应用。
+- 应用前先把现有 `~/.claude/settings.json` 备份到 `~/.config/clis/claude/backups/settings-<时间戳>.json`。
+- 写入采用临时文件 + 原子重命名；配置档 JSON 损坏时立即中止，绝不留下截断文件。
+- 切换成功后更新 `state.json`（只记名称与时间）与配置档的 `lastUsedAt`。
+
+### 复制配置档
+
+- 来源二选一：当前生效配置（只读 `~/.claude/settings.json`，不碰凭据文件）或既有配置档。
+- 深拷贝写入新配置档，元数据（名称 / 创建时间）独立，后续编辑互不影响。
+- 目标同名时非交互模式直接报错，交互模式需显式确认才覆盖。
+
+### 查看 / 编辑配置档
+
+- `show` 展示摘要：API URL / 模型 / 创建时间 / 最近使用，API Key 始终脱敏。
+- `edit` 两种方式：引导更新（URL / Key / 模型，留空保持原值，Key 无回显）或 `$EDITOR` 编辑整份 JSON（高级字段）。
+- 只有确认且 JSON 校验通过才原子覆盖；取消、编辑器异常退出、JSON 无效时原配置档保持不变。
 
 ### 删除配置档
 
@@ -67,6 +93,9 @@ src/cli.js             顶层路由（菜单 / 子命令）
 src/claude/            Claude Code 相关命令
   index.js             菜单与子命令分发
   create.js            创建配置档流程（计划 01）
+  use.js               切换配置档 + current（计划 02）
+  copy.js              复制配置档（计划 03）
+  show.js              查看 / 编辑配置档（计划 04）
   delete.js            删除配置档流程（计划 05）
 src/lib/               共享模块
   paths.js             路径集中管理
@@ -75,6 +104,7 @@ src/lib/               共享模块
   fsutil.js            原子写入与目录权限
   profiles.js          配置档持久层
   state.js             当前配置档状态（state.json）
+  backup.js            切换前备份现有 settings.json
   models.js            从 {base}/v1/models 动态拉取模型
   editor.js            $EDITOR 临时文件编辑
   prompt.js            零依赖交互提示（text/password/select/confirm）
