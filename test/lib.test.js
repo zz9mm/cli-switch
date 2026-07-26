@@ -10,6 +10,30 @@ const { isValidProfileName, isValidApiUrl } = require('../src/lib/validate');
 const { maskSecret, maskSettingsForDisplay } = require('../src/lib/mask');
 const { buildSettings } = require('../src/claude/create');
 const { modelsUrl, extractModelIds } = require('../src/lib/models');
+const { backupClaudeSettings } = require('../src/lib/backup');
+const { applyProfile } = require('../src/claude/use');
+const { readSourceSettings, deepCopy } = require('../src/claude/copy');
+const { profileSummary } = require('../src/claude/show');
+
+// 建立隔离的 clis 配置根 + Claude home；返回清理函数。
+function setupEnv(prefix) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  process.env.CLIS_CONFIG_HOME = path.join(tmp, 'clis-config');
+  process.env.CLAUDE_HOME = path.join(tmp, 'claude-home');
+  const profiles = require('../src/lib/profiles');
+  const state = require('../src/lib/state');
+  return {
+    tmp,
+    profiles,
+    state,
+    claudeSettings: path.join(process.env.CLAUDE_HOME, 'settings.json'),
+    cleanup() {
+      fs.rmSync(tmp, { recursive: true, force: true });
+      delete process.env.CLIS_CONFIG_HOME;
+      delete process.env.CLAUDE_HOME;
+    },
+  };
+}
 
 test('名称校验', () => {
   assert.ok(isValidProfileName('work_1'));
@@ -142,4 +166,172 @@ test('deleteProfile 删除目录、防穿越、清理当前状态', () => {
 
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.CLIS_CONFIG_HOME;
+});
+
+test('backupClaudeSettings 备份现有配置，无配置时返回 null', () => {
+  const env = setupEnv('clis-bak-');
+  try {
+    // 没有生效配置 → null
+    assert.strictEqual(backupClaudeSettings(), null);
+
+    fs.mkdirSync(process.env.CLAUDE_HOME, { recursive: true });
+    fs.writeFileSync(env.claudeSettings, '{"env":{"A":"1"}}\n');
+    const p1 = backupClaudeSettings(new Date('2026-07-25T10:00:00.000Z'));
+    assert.ok(p1.includes('settings-2026-07-25T10-00-00-000Z'));
+    assert.strictEqual(fs.readFileSync(p1, 'utf8'), '{"env":{"A":"1"}}\n');
+
+    // 同一时间戳再次备份 → 追加序号，不覆盖
+    const p2 = backupClaudeSettings(new Date('2026-07-25T10:00:00.000Z'));
+    assert.notStrictEqual(p1, p2);
+    assert.strictEqual(fs.readFileSync(p2, 'utf8'), '{"env":{"A":"1"}}\n');
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('applyProfile 备份旧配置、原子写入、更新状态与最近使用时间', () => {
+  const env = setupEnv('clis-use-');
+  try {
+    const { profiles, state } = env;
+    const settings = buildSettings({ baseUrl: 'https://api.kimi.example', apiKey: 'sk-secret-123456', model: 'kimi-k2' });
+    profiles.createProfile('work', settings);
+
+    // 预置一份旧的生效配置，应被备份
+    fs.mkdirSync(process.env.CLAUDE_HOME, { recursive: true });
+    fs.writeFileSync(env.claudeSettings, '{"env":{"OLD":"1"}}\n');
+
+    const { backupPath } = applyProfile('work');
+    assert.ok(backupPath, '应产生备份');
+    assert.strictEqual(fs.readFileSync(backupPath, 'utf8'), '{"env":{"OLD":"1"}}\n');
+
+    // 生效配置与配置档一致（含密钥，写入 ~/.claude 是预期行为）
+    const applied = JSON.parse(fs.readFileSync(env.claudeSettings, 'utf8'));
+    assert.deepStrictEqual(applied, settings);
+
+    // 状态与元数据更新
+    assert.strictEqual(state.readCurrentProfile(), 'work');
+    assert.ok(profiles.readMeta('work').lastUsedAt, '应记录最近使用时间');
+
+    // 不存在的配置档与损坏 JSON 都应中止且不改动生效配置
+    assert.throws(() => applyProfile('nope'), /不存在/);
+    fs.writeFileSync(
+      path.join(process.env.CLIS_CONFIG_HOME, 'claude', 'profiles', 'work', 'settings.json'),
+      '{bad json',
+    );
+    const before = fs.readFileSync(env.claudeSettings, 'utf8');
+    assert.throws(() => applyProfile('work'), /损坏/);
+    assert.strictEqual(fs.readFileSync(env.claudeSettings, 'utf8'), before, '损坏配置不得覆盖生效配置');
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('touchLastUsed 保留其余元数据字段', () => {
+  const env = setupEnv('clis-touch-');
+  try {
+    const { profiles } = env;
+    profiles.createProfile('a', buildSettings({ baseUrl: 'https://x', apiKey: 'k', model: 'm' }));
+    const before = profiles.readMeta('a');
+    profiles.touchLastUsed('a', '2026-07-25T12:00:00.000Z');
+    const after = profiles.readMeta('a');
+    assert.strictEqual(after.lastUsedAt, '2026-07-25T12:00:00.000Z');
+    assert.strictEqual(after.createdAt, before.createdAt);
+    assert.strictEqual(after.name, 'a');
+    assert.throws(() => profiles.touchLastUsed('ghost'), /不存在/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('copy：来源与目标内容相同、元数据独立、深拷贝互不影响', () => {
+  const env = setupEnv('clis-copy-');
+  try {
+    const { profiles } = env;
+    const src = buildSettings({ baseUrl: 'https://x', apiKey: 'sk-1', model: 'm' });
+    profiles.createProfile('src', src);
+
+    // 配置档来源
+    const copied = readSourceSettings('src');
+    assert.deepStrictEqual(copied, src);
+    profiles.createProfile('dst', deepCopy(copied));
+    assert.deepStrictEqual(profiles.readSettings('dst'), src);
+    const srcMeta = profiles.readMeta('src');
+    const dstMeta = profiles.readMeta('dst');
+    assert.strictEqual(dstMeta.name, 'dst');
+    assert.strictEqual(srcMeta.name, 'src');
+    assert.ok(!dstMeta.lastUsedAt, '新配置档不应继承使用时间');
+
+    // 深拷贝：改副本不影响来源对象
+    copied.env.ANTHROPIC_API_KEY = 'changed';
+    assert.strictEqual(src.env.ANTHROPIC_API_KEY, 'sk-1');
+
+    // current 来源：只读 ~/.claude/settings.json
+    fs.mkdirSync(process.env.CLAUDE_HOME, { recursive: true });
+    fs.writeFileSync(env.claudeSettings, JSON.stringify(src));
+    assert.deepStrictEqual(readSourceSettings('current'), src);
+    assert.throws(() => readSourceSettings('ghost'), /不存在/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('copy current：当前配置不存在或损坏时报错', () => {
+  const env = setupEnv('clis-copy2-');
+  try {
+    assert.throws(() => readSourceSettings('current'), /不存在/);
+    fs.mkdirSync(process.env.CLAUDE_HOME, { recursive: true });
+    fs.writeFileSync(env.claudeSettings, '{bad');
+    assert.throws(() => readSourceSettings('current'), /损坏/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('overwrite 保存（编辑路径）保留 createdAt 与 lastUsedAt，更新 updatedAt', () => {
+  const env = setupEnv('clis-edit-');
+  try {
+    const { profiles } = env;
+    const s1 = buildSettings({ baseUrl: 'https://x', apiKey: 'k1', model: 'm1' });
+    profiles.createProfile('p', s1);
+    profiles.touchLastUsed('p', '2026-07-20T00:00:00.000Z');
+    const before = profiles.readMeta('p');
+
+    const s2 = buildSettings({ baseUrl: 'https://y', apiKey: 'k2', model: 'm2' });
+    profiles.createProfile('p', s2, { overwrite: true });
+    const after = profiles.readMeta('p');
+    assert.strictEqual(after.createdAt, before.createdAt);
+    assert.strictEqual(after.lastUsedAt, '2026-07-20T00:00:00.000Z');
+    assert.deepStrictEqual(profiles.readSettings('p'), s2);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('profileSummary 密钥脱敏且包含元数据', () => {
+  const env = setupEnv('clis-show-');
+  try {
+    const { profiles } = env;
+    const s = buildSettings({ baseUrl: 'https://api.moonshot.cn/anthropic', apiKey: 'sk-bearer-topsecret-9999', model: 'kimi-k2', authType: 'bearer' });
+    profiles.createProfile('showme', s);
+    profiles.touchLastUsed('showme', '2026-07-25T08:00:00.000Z');
+
+    const sum = profileSummary('showme');
+    assert.strictEqual(sum.name, 'showme');
+    assert.strictEqual(sum.baseUrl, 'https://api.moonshot.cn/anthropic');
+    assert.strictEqual(sum.model, 'kimi-k2');
+    assert.ok(sum.maskedKey.includes('****'), '密钥应脱敏');
+    assert.ok(!sum.maskedKey.includes('topsecret'), '不得包含完整密钥');
+    assert.strictEqual(sum.lastUsedAt, '2026-07-25T08:00:00.000Z');
+    assert.ok(sum.createdAt);
+
+    // 损坏配置也能给出摘要（标记 broken）
+    fs.writeFileSync(
+      path.join(process.env.CLIS_CONFIG_HOME, 'claude', 'profiles', 'showme', 'settings.json'),
+      '{bad',
+    );
+    const broken = profileSummary('showme');
+    assert.ok(broken.broken);
+  } finally {
+    env.cleanup();
+  }
 });

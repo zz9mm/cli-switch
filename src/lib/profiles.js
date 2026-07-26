@@ -85,6 +85,22 @@ function createProfile(name, settings, { overwrite = false } = {}) {
 }
 
 /**
+ * 记录配置档最近使用时间（切换生效后调用）。
+ * 其余元数据字段原样保留。
+ */
+function touchLastUsed(name, when) {
+  assertValidProfileName(name);
+  if (!profileExists(name)) {
+    throw new Error(`配置档不存在: ${name}`);
+  }
+  const meta = readMeta(name);
+  meta.name = name;
+  meta.lastUsedAt = when || new Date().toISOString();
+  atomicWriteFile(paths.profileMetaFile(name), JSON.stringify(meta, null, 2) + '\n', 0o600);
+  return meta;
+}
+
+/**
  * 从 settings 中提取用于摘要展示的字段（不含密钥明文）。
  */
 function summarize(settings) {
@@ -130,5 +146,6 @@ module.exports = {
   readMeta,
   createProfile,
   deleteProfile,
+  touchLastUsed,
   summarize,
 };

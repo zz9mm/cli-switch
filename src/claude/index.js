@@ -3,10 +3,12 @@
 const prompts = require('../lib/prompt');
 const { runCreate } = require('./create');
 const { runDelete } = require('./delete');
+const { runUse, runCurrent } = require('./use');
+const { runCopy } = require('./copy');
+const { runShow, runEdit } = require('./show');
 
 /**
  * Claude Code 引导菜单（从顶层菜单进入后调用）。
- * 已实现「创建配置档」「删除配置档」；其余操作待 02-04 计划实现。
  */
 async function claudeMenu() {
   const { action } = await prompts({
@@ -15,9 +17,9 @@ async function claudeMenu() {
     message: 'Claude Code',
     choices: [
       { title: '创建配置档', value: 'create' },
-      { title: '切换配置档（待实现）', value: 'use', disabled: true },
-      { title: '复制配置档（待实现）', value: 'copy', disabled: true },
-      { title: '查看/编辑配置档（待实现）', value: 'show', disabled: true },
+      { title: '切换配置档', value: 'use' },
+      { title: '复制配置档', value: 'copy' },
+      { title: '查看/编辑配置档', value: 'show' },
       { title: '删除配置档', value: 'delete' },
     ],
   }, { onCancel: () => { throw new Cancelled(); } }).catch(swallowCancel);
@@ -25,6 +27,15 @@ async function claudeMenu() {
   switch (action) {
     case 'create':
       await runCreate();
+      break;
+    case 'use':
+      await runUse();
+      break;
+    case 'copy':
+      await runCopy();
+      break;
+    case 'show':
+      await runShow();
       break;
     case 'delete':
       await runDelete();
@@ -61,6 +72,23 @@ async function claudeCommand(args) {
     case 'create':
       await runCreate(rest[0]);
       break;
+    case 'use':
+      await runUse(rest[0]);
+      break;
+    case 'current':
+      runCurrent();
+      break;
+    case 'copy': {
+      const { positional } = parseArgs(rest);
+      await runCopy(positional[0], positional[1]);
+      break;
+    }
+    case 'show':
+      await runShow(rest[0]);
+      break;
+    case 'edit':
+      await runEdit(rest[0]);
+      break;
     case 'delete': {
       const { flags, positional } = parseArgs(rest);
       await runDelete(positional[0], { yes: flags.has('yes') });
@@ -70,7 +98,7 @@ async function claudeCommand(args) {
       await claudeMenu();
       break;
     default:
-      throw new Error(`未知的 claude 子命令: ${sub}（当前支持 create、delete）`);
+      throw new Error(`未知的 claude 子命令: ${sub}（支持 create、use、current、copy、show、edit、delete）`);
   }
 }
 
