@@ -4,7 +4,7 @@ const fs = require('fs');
 const prompts = require('../lib/prompt');
 const store = require('./store');
 const paths = require('../lib/paths');
-const { assertValidProfileName, isValidProfileName } = require('../lib/validate');
+const { assertValidProfileName, assertValidNewProfileName, isValidProfileName, isReservedProfileName } = require('../lib/validate');
 const { maskSecret } = require('../lib/mask');
 const { extractManagedToml } = require('../lib/toml');
 
@@ -108,7 +108,7 @@ async function runCopy(sourceArg, targetArg) {
 }
 
 async function copyNonInteractive(source, target) {
-  assertValidProfileName(target);
+  assertValidNewProfileName(target);
   if (store.profileExists(target)) {
     // 非交互模式不做隐式覆盖；覆盖必须走交互的显式确认流程。
     throw new Error(`配置档已存在: ${target}（非交互模式不覆盖既有配置档）`);
@@ -146,7 +146,12 @@ async function copyInteractive() {
     type: 'text',
     name: 'target',
     message: '新配置档名称',
-    validate: (v) => (isValidProfileName((v || '').trim()) ? true : '名称只能包含字母、数字、短横线或下划线'),
+    validate: (v) => {
+      const t = (v || '').trim();
+      if (!isValidProfileName(t)) return '名称只能包含字母、数字、短横线或下划线';
+      if (isReservedProfileName(t)) return '该名称是保留字（copy 的来源标识），请换一个';
+      return true;
+    },
   }, { onCancel });
   const target = res.target.trim();
 

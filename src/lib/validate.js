@@ -17,6 +17,25 @@ function assertValidProfileName(name) {
   return name;
 }
 
+// copy 命令的来源保留字：作为配置档名会被劫持（永远解析为「当前生效配置」）。
+const RESERVED_NAMES = new Set(['current']);
+
+function isReservedProfileName(name) {
+  return RESERVED_NAMES.has(String(name || '').toLowerCase());
+}
+
+/**
+ * 校验「新建」配置档的名称：在 assertValidProfileName 之上额外拒绝保留字。
+ * 仅用于创建入口（create / copy 目标），读取路径不受影响。
+ */
+function assertValidNewProfileName(name) {
+  assertValidProfileName(name);
+  if (isReservedProfileName(name)) {
+    throw new Error(`名称 "${name}" 是保留字（copy 命令的来源标识），请换一个`);
+  }
+  return name;
+}
+
 /**
  * 校验 API URL：必须是有效的 http:// 或 https:// URL。
  */
@@ -41,6 +60,8 @@ function assertValidApiUrl(value) {
 module.exports = {
   isValidProfileName,
   assertValidProfileName,
+  isReservedProfileName,
+  assertValidNewProfileName,
   isValidApiUrl,
   assertValidApiUrl,
 };

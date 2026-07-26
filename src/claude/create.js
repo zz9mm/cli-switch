@@ -2,7 +2,7 @@
 
 const prompts = require('../lib/prompt');
 const profiles = require('../lib/profiles');
-const { assertValidProfileName, isValidProfileName, assertValidApiUrl } = require('../lib/validate');
+const { assertValidNewProfileName, isValidProfileName, isReservedProfileName, assertValidApiUrl } = require('../lib/validate');
 const { maskSettingsForDisplay } = require('../lib/mask');
 const { editInEditor } = require('../lib/editor');
 const { fetchModels } = require('../lib/models');
@@ -227,13 +227,18 @@ async function runCreate(presetName) {
     // 1. 名称
     let name = presetName;
     if (name) {
-      assertValidProfileName(name);
+      assertValidNewProfileName(name);
     } else {
       const res = await prompts({
         type: 'text',
         name: 'name',
         message: '配置档名称',
-        validate: (v) => (isValidProfileName((v || '').trim()) ? true : '名称只能包含字母、数字、短横线或下划线'),
+        validate: (v) => {
+          const t = (v || '').trim();
+          if (!isValidProfileName(t)) return '名称只能包含字母、数字、短横线或下划线';
+          if (isReservedProfileName(t)) return '该名称是保留字（copy 的来源标识），请换一个';
+          return true;
+        },
       }, { onCancel });
       name = res.name.trim();
     }

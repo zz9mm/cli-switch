@@ -6,7 +6,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { mergeConfig, extractManagedToml, assertValidManagedToml, summarizeToml } = require('../src/lib/toml');
+const { mergeConfig, extractManagedToml, assertValidManagedToml, summarizeToml, splitToml, isManagedSection } = require('../src/lib/toml');
+const { assertValidNewProfileName } = require('../src/lib/validate');
 const { buildToml } = require('../src/codex/create');
 const { applyProfile } = require('../src/codex/use');
 const { readSourceProfile } = require('../src/codex/copy');
@@ -260,4 +261,10 @@ test('buildToml 保留 requiresOpenaiAuth=false，默认仍为 true', () => {
     provider: 'p', baseUrl: 'https://x.com', wireApi: 'chat', model: 'm', reasoningEffort: '',
   });
   assert.match(def, /requires_openai_auth = true/);
+});
+
+test('保留字 current 不能作为新配置档名', () => {
+  assert.throws(() => assertValidNewProfileName('current'), /保留字/);
+  assert.throws(() => assertValidNewProfileName('Current'), /保留字/);
+  assert.strictEqual(assertValidNewProfileName('work'), 'work');
 });
