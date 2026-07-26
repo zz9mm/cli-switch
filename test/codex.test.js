@@ -284,3 +284,27 @@ test('splitToml 识别带行尾注释的 section 头', () => {
   assert.doesNotMatch(merged, /https:\/\/old/);
   assert.match(merged, /\[model_providers\.newapi\]/);
 });
+
+test('applyProfile 切到不管理密钥的配置档时警告残留 auth.json', () => {
+  const env = setupEnv('clis-test-codex-warn-');
+  try {
+    fs.mkdirSync(process.env.CODEX_HOME, { recursive: true });
+    fs.writeFileSync(env.codexConfig, EXISTING_CONFIG);
+    fs.writeFileSync(env.codexAuth, JSON.stringify({ OPENAI_API_KEY: 'old-key' }));
+    env.store.createProfile('nokey', { toml: NEW_PROFILE_TOML, auth: null });
+
+    const logs = [];
+    const origLog = console.log;
+    console.log = (...args) => logs.push(args.join(' '));
+    try {
+      applyProfile('nokey');
+    } finally {
+      console.log = origLog;
+    }
+    assert.ok(logs.some((l) => l.includes('不管理密钥')));
+    // 行为不变：auth.json 保留，仅提示
+    assert.strictEqual(JSON.parse(fs.readFileSync(env.codexAuth, 'utf8')).OPENAI_API_KEY, 'old-key');
+  } finally {
+    env.cleanup();
+  }
+});

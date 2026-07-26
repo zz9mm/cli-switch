@@ -72,6 +72,10 @@ function applyProfile(name) {
   const auth = store.readAuth(name);
   if (auth) {
     atomicWriteFile(paths.codexAuthFile(), JSON.stringify(auth, null, 2) + '\n', 0o600);
+  } else if (fs.existsSync(paths.codexAuthFile())) {
+    // 配置档不管理密钥：旧 key 仍留在 auth.json 并优先生效，必须让用户知情。
+    console.log('警告：该配置档不管理密钥，现有 ~/.codex/auth.json 仍保留旧密钥，将优先于环境变量生效。');
+    console.log('      如需走环境变量，请先从备份中恢复或删除该文件。');
   }
 
   store.touchLastUsed(name);
