@@ -237,3 +237,16 @@ test('profileSummary 密钥脱敏且包含元数据', () => {
     env.cleanup();
   }
 });
+
+test('overwrite 为不管理密钥时清除残留 auth.json', () => {
+  const env = setupEnv('clis-test-codex-stale-');
+  try {
+    env.store.createProfile('p', { toml: NEW_PROFILE_TOML, auth: { OPENAI_API_KEY: 'sk-old' } });
+    // 用不管理密钥的内容覆盖（copy 覆盖路径的等价调用）
+    env.store.createProfile('p', { toml: NEW_PROFILE_TOML, auth: null }, { overwrite: true });
+    assert.strictEqual(env.store.readAuth('p'), null);
+    assert.ok(!fs.existsSync(path.join(process.env.CLIS_CONFIG_HOME, 'codex', 'profiles', 'p', 'auth.json')));
+  } finally {
+    env.cleanup();
+  }
+});

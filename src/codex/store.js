@@ -94,6 +94,13 @@ function createProfile(name, { toml, auth = null }, { overwrite = false } = {}) 
   atomicWriteFile(paths.codexProfileConfigFile(name), toml, 0o600);
   if (auth) {
     atomicWriteFile(paths.codexProfileAuthFile(name), JSON.stringify(auth, null, 2) + '\n', 0o600);
+  } else {
+    // 覆盖为「不管理密钥」时清除残留的旧 auth.json，防止旧密钥在下次切换时静默生效。
+    try {
+      fs.unlinkSync(paths.codexProfileAuthFile(name));
+    } catch {
+      // 文件本就不存在，无需处理。
+    }
   }
   atomicWriteFile(paths.codexProfileMetaFile(name), JSON.stringify(meta, null, 2) + '\n', 0o600);
   return meta;
