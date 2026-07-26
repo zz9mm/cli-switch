@@ -22,7 +22,8 @@ function normalizeSectionName(name) {
 }
 
 const KEY_RE = /^\s*([A-Za-z0-9_.-]+)\s*=/;
-const HEADER_RE = /^\s*\[\[?\s*([^\]]+?)\s*\]?\]\s*$/;
+// section 头允许行尾注释（如 [model_providers.x] # 注释），否则整段会被误判为 preamble。
+const HEADER_RE = /^\s*\[\[?\s*([^\]]+?)\s*\]?\]\s*(#.*)?$/;
 
 /**
  * 把 TOML 文本切分为 preamble（首个 section 之前的顶层内容）与 sections。

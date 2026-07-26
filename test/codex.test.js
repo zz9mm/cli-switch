@@ -268,3 +268,19 @@ test('保留字 current 不能作为新配置档名', () => {
   assert.throws(() => assertValidNewProfileName('Current'), /保留字/);
   assert.strictEqual(assertValidNewProfileName('work'), 'work');
 });
+
+test('splitToml 识别带行尾注释的 section 头', () => {
+  const text = 'model = "gpt-5"\n\n[model_providers.x] # 我的 provider\nbase_url = "https://a"\n';
+  const { sections, preambleKeys } = splitToml(text);
+  assert.strictEqual(sections.length, 1);
+  assert.ok(isManagedSection(sections[0].name));
+  assert.deepStrictEqual(preambleKeys, ['model']);
+
+  // 带注释的合法片段能通过受管校验
+  assertValidManagedToml(text);
+
+  // 现有配置的旧 provider 带注释时也能被整体替换，不残留孤儿键
+  const merged = mergeConfig('[model_providers.old] # c\nbase_url = "https://old"\n', NEW_PROFILE_TOML);
+  assert.doesNotMatch(merged, /https:\/\/old/);
+  assert.match(merged, /\[model_providers\.newapi\]/);
+});
