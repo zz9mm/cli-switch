@@ -1,16 +1,16 @@
 # Pensieve Project State
 
 ## Lifecycle State
-- Last Event: doctor
-- Last Note: doctor summary: status=PASS_WITH_WARNINGS, must_fix=0, should_fix=0, info=1, next=self-improve
+- Last Event: self-improve
+- Last Note: extracted 1 decision (editor blank no template) + 1 knowledge (model tier env)
 
 ## Project Paths
-- Project Root: `/home/code/cli-switch`
+- Project Root: `D:/code/2026/cli-switch`
 - User Data: `.pensieve/`
 - Runtime State: `.pensieve/.state/`
 
 ## Short-Term
-- Total: 3
+- Total: 2
 - Due for refine: 0 (created 7+ days ago)
 
 ## Graph
