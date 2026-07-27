@@ -44,13 +44,29 @@ function buildSettings({ baseUrl, apiKey, model, authType = 'api_key', tierModel
 }
 
 /**
- * 交互式引导填写：URL、隐藏输入 Key、动态拉取并选择模型，可选为各档位单独映射模型。
- *
- * 当前仅支持中转（Auth Token / Bearer）方式，固定写入 ANTHROPIC_AUTH_TOKEN。
- * 官方 x-api-key 方式暂不提供选择（buildSettings 仍保留 authType 以便将来恢复）。
+ * 鉴权方式及其展示文案。
+ * - bearer：写入 ANTHROPIC_AUTH_TOKEN，请求走 Authorization: Bearer 头（Kimi/Moonshot 等第三方中转）。
+ * - api_key：写入 ANTHROPIC_API_KEY，请求走 x-api-key 头（官方 Anthropic）。
+ */
+const AUTH_MODES = [
+  { value: 'bearer', label: 'Auth Token（Bearer，适配 Kimi/Moonshot 等第三方中转）' },
+  { value: 'api_key', label: 'API Key（x-api-key，官方 Anthropic）' },
+];
+
+/**
+ * 交互式引导填写：选择鉴权方式、输入 URL、隐藏输入 Key、动态拉取并选择模型，
+ * 可选为各档位单独映射模型。
  */
 async function guidedInput() {
-  const authType = 'bearer';
+  const { authType } = await prompts({
+    type: 'select',
+    name: 'authType',
+    message: '选择鉴权方式',
+    choices: AUTH_MODES.map((m) => ({ title: m.label, value: m.value })),
+    initial: 0,
+  }, { onCancel });
+
+  const keyLabel = authType === 'api_key' ? 'API Key' : 'Auth Token';
 
   const { baseUrl: rawUrl } = await prompts({
     type: 'text',
@@ -63,8 +79,8 @@ async function guidedInput() {
   const { apiKey } = await prompts({
     type: 'password',
     name: 'apiKey',
-    message: 'Auth Token（输入不回显）',
-    validate: (v) => (v && v.length > 0 ? true : 'Auth Token 不能为空'),
+    message: `${keyLabel}（输入不回显）`,
+    validate: (v) => (v && v.length > 0 ? true : `${keyLabel} 不能为空`),
   }, { onCancel });
 
   const ids = await fetchModelIds({ baseUrl, authType, apiKey });
@@ -282,3 +298,5 @@ async function runCreate(presetName) {
 }
 
 module.exports = { runCreate, buildSettings, CancelError };
+
+
