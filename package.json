@@ -7,6 +7,10 @@
     "clis": "bin/clis.js"
   },
   "main": "src/cli.js",
+  "files": [
+    "bin/",
+    "src/"
+  ],
   "scripts": {
     "test": "node --test \"test/**/*.test.js\""
   },
