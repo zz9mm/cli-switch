@@ -2,7 +2,7 @@
 
 ## Lifecycle State
 - Last Event: self-improve
-- Last Note: codex config and auth switch as one rollback unit
+- Last Note: interactive IO and guided workflows use injectable boundaries
 
 ## Project Paths
 - Project Root: `/home/code/cli-switch`

@@ -57,8 +57,8 @@ const AUTH_MODES = [
  * 交互式引导填写：选择鉴权方式、输入 URL、隐藏输入 Key、动态拉取并选择模型，
  * 可选为各档位单独映射模型。
  */
-async function guidedInput() {
-  const { authType } = await prompts({
+async function guidedInput({ ask = prompts, fetchIds = fetchModelIds } = {}) {
+  const { authType } = await ask({
     type: 'select',
     name: 'authType',
     message: '选择鉴权方式',
@@ -68,7 +68,7 @@ async function guidedInput() {
 
   const keyLabel = authType === 'api_key' ? 'API Key' : 'Auth Token';
 
-  const { baseUrl: rawUrl } = await prompts({
+  const { baseUrl: rawUrl } = await ask({
     type: 'text',
     name: 'baseUrl',
     message: 'API URL',
@@ -76,18 +76,18 @@ async function guidedInput() {
   }, { onCancel });
   const baseUrl = rawUrl.trim();
 
-  const { apiKey } = await prompts({
+  const { apiKey } = await ask({
     type: 'password',
     name: 'apiKey',
     message: `${keyLabel}（输入不回显）`,
     validate: (v) => (v && v.length > 0 ? true : `${keyLabel} 不能为空`),
   }, { onCancel });
 
-  const ids = await fetchModelIds({ baseUrl, authType, apiKey });
+  const ids = await fetchIds({ baseUrl, authType, apiKey });
 
-  const model = await pickModel(ids);
+  const model = await pickModel(ids, ask);
 
-  const tierModels = await pickTierModels(ids, model);
+  const tierModels = await pickTierModels(ids, model, ask);
 
   return buildSettings({ baseUrl, apiKey, model, authType, tierModels });
 }
@@ -114,22 +114,22 @@ async function fetchModelIds({ baseUrl, authType, apiKey }) {
  * 从已拉取的模型列表选择主模型；列表为空回退手动输入。
  * 始终追加「自定义（手动输入）」选项。
  */
-async function pickModel(ids) {
+async function pickModel(ids, ask = prompts) {
   if (!ids.length) {
-    return manualModel();
+    return manualModel(ask);
   }
 
   const choices = ids.map((id) => ({ title: id, value: id }));
   choices.push({ title: '自定义（手动输入）…', value: CUSTOM_MODEL });
 
-  const { choice } = await prompts({
+  const { choice } = await ask({
     type: 'select',
     name: 'choice',
     message: '选择模型',
     choices,
   }, { onCancel });
 
-  return choice === CUSTOM_MODEL ? manualModel() : choice;
+  return choice === CUSTOM_MODEL ? manualModel(ask) : choice;
 }
 
 /**
@@ -150,8 +150,8 @@ const MODEL_TIERS = [
  * @param {string} primaryModel 主模型（ANTHROPIC_MODEL）。
  * @returns {Object} 形如 { ANTHROPIC_DEFAULT_OPUS_MODEL: 'k3' } 的映射。
  */
-async function pickTierModels(ids, primaryModel) {
-  const { want } = await prompts({
+async function pickTierModels(ids, primaryModel, ask = prompts) {
+  const { want } = await ask({
     type: 'confirm',
     name: 'want',
     message: '需要为 Opus/Sonnet/Haiku/Fable 档位单独映射模型吗？（默认否，各档位沿用主模型）',
@@ -167,7 +167,7 @@ async function pickTierModels(ids, primaryModel) {
       ...ids.filter((id) => id !== primaryModel).map((id) => ({ title: id, value: id })),
       { title: '自定义（手动输入）…', value: CUSTOM_MODEL },
     ];
-    const { choice } = await prompts({
+    const { choice } = await ask({
       type: 'select',
       name: 'choice',
       message: `${tier.label} 档位映射到哪个模型`,
@@ -175,13 +175,13 @@ async function pickTierModels(ids, primaryModel) {
       initial: 1,
     }, { onCancel });
     if (!choice) continue;
-    tierModels[tier.key] = choice === CUSTOM_MODEL ? await manualModel() : choice;
+    tierModels[tier.key] = choice === CUSTOM_MODEL ? await manualModel(ask) : choice;
   }
   return tierModels;
 }
 
-async function manualModel() {
-  const res = await prompts({
+async function manualModel(ask = prompts) {
+  const res = await ask({
     type: 'text',
     name: 'model',
     message: '输入模型名',
@@ -298,6 +298,4 @@ async function runCreate(presetName) {
   }
 }
 
-module.exports = { runCreate, buildSettings, CancelError };
-
-
+module.exports = { runCreate, buildSettings, guidedInput, CancelError };

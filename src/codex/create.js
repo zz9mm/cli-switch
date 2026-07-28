@@ -49,8 +49,8 @@ function buildToml({ provider, baseUrl, wireApi, model, reasoningEffort, require
  * 交互式引导填写：provider 名、URL、隐藏输入 Key、动态拉取并选择模型、推理强度。
  * Codex 中转端统一走 Bearer（auth.json 的 OPENAI_API_KEY）。
  */
-async function guidedInput() {
-  const { provider: rawProvider } = await prompts({
+async function guidedInput({ ask = prompts, fetchIds = fetchModelIds } = {}) {
+  const { provider: rawProvider } = await ask({
     type: 'text',
     name: 'provider',
     message: 'Provider 名称（config.toml 中的 [model_providers.<名称>]）',
@@ -59,7 +59,7 @@ async function guidedInput() {
   }, { onCancel });
   const provider = rawProvider.trim();
 
-  const { baseUrl: rawUrl } = await prompts({
+  const { baseUrl: rawUrl } = await ask({
     type: 'text',
     name: 'baseUrl',
     message: 'API URL',
@@ -67,7 +67,7 @@ async function guidedInput() {
   }, { onCancel });
   const baseUrl = rawUrl.trim();
 
-  const { wireApi } = await prompts({
+  const { wireApi } = await ask({
     type: 'select',
     name: 'wireApi',
     message: 'Wire API（中转端多为 responses）',
@@ -78,18 +78,18 @@ async function guidedInput() {
     initial: 0,
   }, { onCancel });
 
-  const { apiKey } = await prompts({
+  const { apiKey } = await ask({
     type: 'password',
     name: 'apiKey',
     message: 'API Key（输入不回显）',
     validate: (v) => (v && v.length > 0 ? true : 'API Key 不能为空'),
   }, { onCancel });
 
-  const ids = await fetchModelIds({ baseUrl, apiKey });
+  const ids = await fetchIds({ baseUrl, apiKey });
 
-  const model = await pickModel(ids);
+  const model = await pickModel(ids, ask);
 
-  const { reasoningEffort } = await prompts({
+  const { reasoningEffort } = await ask({
     type: 'select',
     name: 'reasoningEffort',
     message: '推理强度（model_reasoning_effort）',
@@ -128,26 +128,26 @@ async function fetchModelIds({ baseUrl, apiKey }) {
  * 从已拉取的模型列表选择模型；列表为空回退手动输入。
  * 始终追加「自定义（手动输入）」选项。
  */
-async function pickModel(ids) {
+async function pickModel(ids, ask = prompts) {
   if (!ids.length) {
-    return manualModel();
+    return manualModel(ask);
   }
 
   const choices = ids.map((id) => ({ title: id, value: id }));
   choices.push({ title: '自定义（手动输入）…', value: CUSTOM_MODEL });
 
-  const { choice } = await prompts({
+  const { choice } = await ask({
     type: 'select',
     name: 'choice',
     message: '选择模型',
     choices,
   }, { onCancel });
 
-  return choice === CUSTOM_MODEL ? manualModel() : choice;
+  return choice === CUSTOM_MODEL ? manualModel(ask) : choice;
 }
 
-async function manualModel() {
-  const res = await prompts({
+async function manualModel(ask = prompts) {
+  const res = await ask({
     type: 'text',
     name: 'model',
     message: '输入模型名',
@@ -262,4 +262,4 @@ async function runCreate(presetName) {
   }
 }
 
-module.exports = { runCreate, buildToml, CancelError };
+module.exports = { runCreate, buildToml, guidedInput, CancelError };

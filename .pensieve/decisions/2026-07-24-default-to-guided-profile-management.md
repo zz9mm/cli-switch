@@ -4,7 +4,7 @@ type: decision
 title: 默认采用引导式配置档管理
 status: active
 created: 2026-07-24
-updated: 2026-07-24
+updated: 2026-07-28
 tags: [clis, claude-code, profile, ux]
 ---
 
@@ -35,12 +35,14 @@ tags: [clis, claude-code, profile, ux]
 
 运行 `clis` 后先选择目标 CLI 与五项操作。创建配置档默认通过 API URL、隐藏的 API Key 和模型输入向导完成；JSON 编辑保留为高级入口。复制行为独立成命令和菜单项。
 
+交互实现采用两层边界：`src/lib/prompt.js` 的默认实例绑定真实 stdin/stdout，自定义实例可注入 I/O context；创建/编辑向导只通过可注入的 `ask`、模型拉取与确认函数组织业务步骤。测试直接驱动这些边界，不在生产代码中增加测试模式或全局切换开关。
+
 ## 结果
 
-交互层需要同时支持终端选择、无回显输入、取消和确认；适配器层应保持可由参数命令调用，以满足自动化需求。
+交互层需要同时支持终端选择、无回显输入、取消和确认；适配器层应保持可由参数命令调用，以满足自动化需求。TTY raw mode、方向键、密码零回显、Ctrl-C/EOF 清理，以及创建/编辑向导的字段保留语义均可在不启动真实终端的情况下回归测试。
 
 ## 探索减负
 
 - 下次可以少问什么：默认交互模式与创建、复制的边界。
-- 下次可以少查什么：API URL、API Key 与模型是否应出现在创建向导中。
+- 下次可以少查什么：API URL、API Key 与模型应出现在创建向导中；交互测试从 `createPrompt({ input, output })` 与向导的 `ask/fetch/confirm` 注入点进入，不需要替换全局 process 流。
 - 失效条件：目标用户改为完全由 CI 或脚本管理配置，且明确不需要交互式操作。

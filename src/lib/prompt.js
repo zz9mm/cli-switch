@@ -27,9 +27,16 @@ function cancelled() {
   return e;
 }
 
-async function prompt(question, { onCancel } = {}) {
+function createPrompt({ input = process.stdin, output = process.stdout } = {}) {
+  const context = { input, output, reader: null };
+  const prompt = (question, options) => promptQuestion(context, question, options);
+  prompt.closeShared = () => closeShared(context);
+  return prompt;
+}
+
+async function promptQuestion(context, question, { onCancel } = {}) {
   try {
-    const value = await ask(question);
+    const value = await ask(context, question);
     return { [question.name]: value };
   } catch (err) {
     if (err && err.cancelled) {
@@ -40,17 +47,17 @@ async function prompt(question, { onCancel } = {}) {
   }
 }
 
-function ask(q) {
-  const tty = Boolean(process.stdin.isTTY);
+function ask(context, q) {
+  const tty = Boolean(context.input.isTTY);
   switch (q.type) {
     case 'text':
-      return tty ? ttyLine(q, false) : pipeLine(q, false);
+      return tty ? ttyLine(context, q, false) : pipeLine(context, q, false);
     case 'password':
-      return tty ? ttyLine(q, true) : pipeLine(q, true);
+      return tty ? ttyLine(context, q, true) : pipeLine(context, q, true);
     case 'confirm':
-      return tty ? ttyConfirm(q) : pipeConfirm(q);
+      return tty ? ttyConfirm(context, q) : pipeConfirm(context, q);
     case 'select':
-      return tty ? ttySelect(q) : pipeSelect(q);
+      return tty ? ttySelect(context, q) : pipeSelect(context, q);
     default:
       throw new Error(`不支持的提示类型: ${q.type}`);
   }
@@ -58,15 +65,14 @@ function ask(q) {
 
 function firstEnabled(choices, start) {
   if (choices[start] && !choices[start].disabled) return start;
-  const idx = choices.findIndex((c) => !c.disabled);
-  return idx >= 0 ? idx : 0;
+  return choices.findIndex((c) => !c.disabled);
 }
 
 /* ===================== TTY 实现（原始模式 + keypress） ===================== */
 
 // 挂上 keypress 监听并进入原始模式；返回清理函数。
-function beginKeys(onKey) {
-  const input = process.stdin;
+function beginKeys(context, onKey) {
+  const { input } = context;
   readline.emitKeypressEvents(input);
   const wasRaw = input.isRaw;
   input.setRawMode(true);
@@ -84,14 +90,14 @@ function beginKeys(onKey) {
 }
 
 // 文本 / 密码：自带最小行编辑（打印字符、退格、回车提交）。
-function ttyLine(q, hidden) {
-  const output = process.stdout;
+function ttyLine(context, q, hidden) {
+  const { output } = context;
   return new Promise((resolve, reject) => {
     let buf = '';
     const printPrompt = () => output.write(`${q.message}: `);
     printPrompt();
 
-    const cleanup = beginKeys((str, key) => {
+    const cleanup = beginKeys(context, (str, key) => {
       if (key.ctrl && key.name === 'c') {
         cleanup();
         output.write('\n');
@@ -129,13 +135,13 @@ function ttyLine(q, hidden) {
 }
 
 // 确认：单键 y/n，回车用默认值。
-function ttyConfirm(q) {
-  const output = process.stdout;
+function ttyConfirm(context, q) {
+  const { output } = context;
   const def = q.initial !== false;
   const hint = def ? 'Y/n' : 'y/N';
   return new Promise((resolve, reject) => {
     output.write(`${q.message} (${hint}) `);
-    const cleanup = beginKeys((str, key) => {
+    const cleanup = beginKeys(context, (str, key) => {
       if (key.ctrl && key.name === 'c') { cleanup(); output.write('\n'); return reject(cancelled()); }
       if (key.name === 'return' || key.name === 'enter' || str === '\r' || str === '\n') {
         cleanup(); output.write('\n'); return resolve(def);
@@ -149,11 +155,13 @@ function ttyConfirm(q) {
 }
 
 // 单选：↑/↓ 选择，回车确认。
-function ttySelect(q) {
-  const output = process.stdout;
+function ttySelect(context, q) {
+  const { output } = context;
   const choices = q.choices;
+  const initial = firstEnabled(choices, Math.max(0, q.initial || 0));
+  if (initial < 0) throw new Error('选项列表中没有可用项');
   return new Promise((resolve, reject) => {
-    let index = firstEnabled(choices, Math.max(0, q.initial || 0));
+    let index = initial;
     let rendered = false;
 
     const render = () => {
@@ -175,7 +183,7 @@ function ttySelect(q) {
       render();
     };
 
-    const cleanup = beginKeys((str, key) => {
+    const cleanup = beginKeys(context, (str, key) => {
       if (key.ctrl && key.name === 'c') { cleanup(); output.write('\n'); return reject(cancelled()); }
       if (key.name === 'up' || key.name === 'k') return move(-1);
       if (key.name === 'down' || key.name === 'j') return move(1);
@@ -200,10 +208,10 @@ function ttySelect(q) {
 
 /* ===================== 非 TTY 实现（管道：常驻 readline 行队列） ===================== */
 
-let reader = null;
-function getReader() {
-  if (reader) return reader;
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+function getReader(context) {
+  if (context.reader) return context.reader;
+  const { input, output } = context;
+  const rl = readline.createInterface({ input, output });
   const lines = [];
   let waiter = null;
   let ended = false;
@@ -217,7 +225,7 @@ function getReader() {
     if (waiter) { const w = waiter; waiter = null; w.resolve(null); }
   });
 
-  reader = {
+  context.reader = {
     nextLine() {
       if (lines.length) return Promise.resolve(lines.shift());
       if (ended) return Promise.resolve(null);
@@ -225,24 +233,25 @@ function getReader() {
     },
     close() { try { rl.close(); } catch { /* ignore */ } },
   };
-  return reader;
+  return context.reader;
 }
 
 // 供进程结束时清理（仅非 TTY 路径创建过 reader）。
-function closeShared() {
-  if (reader) { reader.close(); reader = null; }
+function closeShared(context) {
+  if (context.reader) { context.reader.close(); context.reader = null; }
 }
 
-async function pipeLine(q, _hidden) {
-  const r = getReader();
+async function pipeLine(context, q, _hidden) {
+  const { output } = context;
+  const r = getReader(context);
   for (;;) {
-    process.stdout.write(`${q.message}: `);
+    output.write(`${q.message}: `);
     const answer = await r.nextLine();
     if (answer === null) throw cancelled();
     if (typeof q.validate === 'function') {
       const res = q.validate(answer);
       if (res !== true) {
-        process.stdout.write(`  ${typeof res === 'string' ? res : '输入无效'}\n`);
+        output.write(`  ${typeof res === 'string' ? res : '输入无效'}\n`);
         continue;
       }
     }
@@ -250,11 +259,12 @@ async function pipeLine(q, _hidden) {
   }
 }
 
-async function pipeConfirm(q) {
-  const r = getReader();
+async function pipeConfirm(context, q) {
+  const { output } = context;
+  const r = getReader(context);
   const def = q.initial !== false;
   const hint = def ? 'Y/n' : 'y/N';
-  process.stdout.write(`${q.message} (${hint}) `);
+  output.write(`${q.message} (${hint}) `);
   const answer = await r.nextLine();
   if (answer === null) throw cancelled();
   const a = answer.trim().toLowerCase();
@@ -262,28 +272,32 @@ async function pipeConfirm(q) {
   return a === 'y' || a === 'yes';
 }
 
-async function pipeSelect(q) {
-  const r = getReader();
+async function pipeSelect(context, q) {
+  const { output } = context;
+  const r = getReader(context);
   const choices = q.choices;
-  process.stdout.write(`${q.message}\n`);
+  const def = firstEnabled(choices, Math.max(0, q.initial || 0));
+  if (def < 0) throw new Error('选项列表中没有可用项');
+  output.write(`${q.message}\n`);
   choices.forEach((c, i) => {
     const dim = c.disabled ? ' (不可用)' : '';
-    process.stdout.write(`  ${i + 1}) ${c.title}${dim}\n`);
+    output.write(`  ${i + 1}) ${c.title}${dim}\n`);
   });
-  const def = firstEnabled(choices, Math.max(0, q.initial || 0));
   for (;;) {
-    process.stdout.write(`输入编号 [${def + 1}]: `);
+    output.write(`输入编号 [${def + 1}]: `);
     const answer = await r.nextLine();
     if (answer === null) throw cancelled();
     const trimmed = answer.trim();
     const n = trimmed === '' ? def + 1 : parseInt(trimmed, 10);
     if (!Number.isInteger(n) || n < 1 || n > choices.length || choices[n - 1].disabled) {
-      process.stdout.write('  无效编号\n');
+      output.write('  无效编号\n');
       continue;
     }
     return choices[n - 1].value;
   }
 }
 
+const prompt = createPrompt();
+prompt.createPrompt = createPrompt;
+
 module.exports = prompt;
-module.exports.closeShared = closeShared;

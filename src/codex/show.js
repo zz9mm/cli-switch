@@ -195,7 +195,7 @@ async function editViaEditor(name) {
  * API Key 无回显输入；其余字段回显当前值供参考。
  * 仅支持标准的单 provider 配置档；自定义结构请用编辑器模式。
  */
-async function editViaGuided(name) {
+async function editViaGuided(name, { ask = prompts, confirm = confirmSave } = {}) {
   const original = store.readConfigToml(name);
   // 引导编辑按标准形状重建片段，只允许已知字段，避免静默丢弃用户加的高级字段。
   const STANDARD_SECTION_KEYS = ['name', 'base_url', 'wire_api', 'requires_openai_auth'];
@@ -220,7 +220,7 @@ async function editViaGuided(name) {
   const authFlagMatch = authFlagLine && authFlagLine.match(/=\s*(true|false)/);
   const curRequiresAuth = authFlagMatch ? authFlagMatch[1] === 'true' : true;
 
-  const urlRes = await prompts({
+  const urlRes = await ask({
     type: 'text',
     name: 'baseUrl',
     message: `API URL（当前: ${s.baseUrl || '(未设置)'}，留空保持不变）`,
@@ -231,19 +231,19 @@ async function editViaGuided(name) {
     },
   }, { onCancel });
 
-  const keyRes = await prompts({
+  const keyRes = await ask({
     type: 'password',
     name: 'apiKey',
     message: `API Key（当前: ${curKey ? maskSecret(curKey) : '(不管理密钥)'}，留空保持不变，输入不回显）`,
   }, { onCancel });
 
-  const modelRes = await prompts({
+  const modelRes = await ask({
     type: 'text',
     name: 'model',
     message: `模型（当前: ${s.model || '(未设置)'}，留空保持不变）`,
   }, { onCancel });
 
-  const effortRes = await prompts({
+  const effortRes = await ask({
     type: 'text',
     name: 'reasoningEffort',
     message: `推理强度（当前: ${s.reasoningEffort || '(未设置)'}，留空保持不变）`,
@@ -274,7 +274,7 @@ async function editViaGuided(name) {
   });
   const nextAuth = newKey ? { OPENAI_API_KEY: newKey } : auth;
 
-  const ok = await confirmSave(name, { toml, auth: nextAuth });
+  const ok = await confirm(name, { toml, auth: nextAuth });
   if (!ok) return;
   store.createProfile(name, { toml, auth: nextAuth }, { overwrite: true });
   console.log(`已更新配置档: ${name}`);
@@ -301,4 +301,4 @@ async function confirmSave(name, { toml, auth }) {
   return true;
 }
 
-module.exports = { runShow, runEdit, profileSummary };
+module.exports = { runShow, runEdit, profileSummary, editViaGuided };

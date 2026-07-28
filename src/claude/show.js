@@ -191,7 +191,7 @@ async function editViaEditor(name) {
  * 引导模式：逐项更新 API URL、API Key、模型。留空表示保持原值。
  * API Key 无回显输入；其余字段回显当前值供参考。
  */
-async function editViaGuided(name) {
+async function editViaGuided(name, { ask = prompts, confirm = confirmSave } = {}) {
   const settings = profiles.readSettings(name);
   const env = settings.env && typeof settings.env === 'object' ? settings.env : {};
   const curUrl = env.ANTHROPIC_BASE_URL || '';
@@ -201,7 +201,7 @@ async function editViaGuided(name) {
     ? 'ANTHROPIC_AUTH_TOKEN'
     : (typeof env.ANTHROPIC_API_KEY === 'string' ? 'ANTHROPIC_API_KEY' : 'ANTHROPIC_AUTH_TOKEN');
 
-  const urlRes = await prompts({
+  const urlRes = await ask({
     type: 'text',
     name: 'baseUrl',
     message: `API URL（当前: ${curUrl || '(未设置)'}，留空保持不变）`,
@@ -212,13 +212,13 @@ async function editViaGuided(name) {
     },
   }, { onCancel });
 
-  const keyRes = await prompts({
+  const keyRes = await ask({
     type: 'password',
     name: 'apiKey',
     message: `API Key（当前: ${env[keyField] ? maskSecret(env[keyField]) : '(未设置)'}，留空保持不变，输入不回显）`,
   }, { onCancel });
 
-  const modelRes = await prompts({
+  const modelRes = await ask({
     type: 'text',
     name: 'model',
     message: `模型（当前: ${curModel || '(未设置)'}，留空保持不变）`,
@@ -238,7 +238,7 @@ async function editViaGuided(name) {
     return;
   }
 
-  const ok = await confirmSave(name, next);
+  const ok = await confirm(name, next);
   if (!ok) return;
   profiles.createProfile(name, next, { overwrite: true });
   console.log(`已更新配置档: ${name}`);
@@ -263,4 +263,4 @@ async function confirmSave(name, settings) {
   return true;
 }
 
-module.exports = { runShow, runEdit, profileSummary };
+module.exports = { runShow, runEdit, profileSummary, editViaGuided };
