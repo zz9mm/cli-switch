@@ -2,10 +2,10 @@
 
 ## Lifecycle State
 - Last Event: self-improve
-- Last Note: auto-improve: maxims/overwrite-must-delete-absent-optional-files.md
+- Last Note: codex config and auth switch as one rollback unit
 
 ## Project Paths
-- Project Root: `D:/code/2026/cli-switch`
+- Project Root: `/home/code/cli-switch`
 - User Data: `.pensieve/`
 - Runtime State: `.pensieve/.state/`
 

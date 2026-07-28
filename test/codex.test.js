@@ -119,6 +119,15 @@ test('assertValidManagedToml 拒绝本机状态内容', () => {
   assertValidManagedToml(NEW_PROFILE_TOML);
 });
 
+test('assertValidManagedToml 拒绝畸形 section、无法解析的行与空赋值', () => {
+  assert.throws(() => assertValidManagedToml('[model_providers.x\nbase_url = "https://x"\n'), /不是可识别/);
+  assert.throws(() => assertValidManagedToml('[model_providers.x]\nnot an assignment\n'), /不是可识别/);
+  assert.throws(() => assertValidManagedToml('[model_providers.x]\nbase_url = # missing\n'), /缺少值/);
+  assert.throws(() => assertValidManagedToml('[[model_providers.x]]\nbase_url = "https://x"\n'), /数组 section/);
+  assert.throws(() => assertValidManagedToml('# only a comment\n'), /没有任何受管/);
+  assert.throws(() => assertValidManagedToml('[model_providers.]\nbase_url = "https://x"\n'), /不允许的 section/);
+});
+
 test('buildToml 与 summarizeToml 往返一致', () => {
   const s = summarizeToml(NEW_PROFILE_TOML);
   assert.strictEqual(s.model, 'new-model');
@@ -143,6 +152,11 @@ test('codex store 创建、读取、元数据、删除', () => {
 
     // 重名拒绝
     assert.throws(() => env.store.createProfile('work', { toml: 'x' }), /已存在/);
+    assert.throws(() => env.store.createProfile('bad-toml', { toml: 'x' }), /不是可识别/);
+    assert.throws(
+      () => env.store.createProfile('bad-auth', { toml: NEW_PROFILE_TOML, auth: [] }),
+      /auth 必须是 JSON 对象/,
+    );
 
     env.store.deleteProfile('work');
     assert.deepStrictEqual(env.store.listProfiles(), []);
@@ -157,6 +171,18 @@ test('codex store 无 auth 的配置档 readAuth 返回 null', () => {
     env.store.createProfile('nokey', { toml: NEW_PROFILE_TOML, auth: null });
     assert.strictEqual(env.store.readAuth('nokey'), null);
     assert.ok(env.store.profileExists('nokey'));
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('codex store 对损坏的 auth.json 明确报错', () => {
+  const env = setupEnv('clis-test-codex-bad-auth-');
+  try {
+    env.store.createProfile('bad', { toml: NEW_PROFILE_TOML, auth: { OPENAI_API_KEY: 'key' } });
+    const authPath = path.join(process.env.CLIS_CONFIG_HOME, 'codex', 'profiles', 'bad', 'auth.json');
+    fs.writeFileSync(authPath, '{bad json');
+    assert.throws(() => env.store.readAuth('bad'), /auth\.json 损坏/);
   } finally {
     env.cleanup();
   }
@@ -188,6 +214,36 @@ test('applyProfile 合并保留本机状态、写入 auth、备份旧配置', ()
   }
 });
 
+test('applyProfile 写 auth 失败时回滚已写入的 config.toml', () => {
+  const env = setupEnv('clis-test-codex-rollback-');
+  const originalRename = fs.renameSync;
+  try {
+    fs.mkdirSync(process.env.CODEX_HOME, { recursive: true });
+    fs.writeFileSync(env.codexConfig, EXISTING_CONFIG);
+    fs.writeFileSync(env.codexAuth, JSON.stringify({ OPENAI_API_KEY: 'old-key' }));
+    env.store.createProfile('work', { toml: NEW_PROFILE_TOML, auth: { OPENAI_API_KEY: 'new-key' } });
+
+    let injected = false;
+    fs.renameSync = (source, target) => {
+      if (!injected && target === env.codexAuth) {
+        injected = true;
+        const err = new Error('injected auth rename failure');
+        err.code = 'EACCES';
+        throw err;
+      }
+      return originalRename(source, target);
+    };
+
+    assert.throws(() => applyProfile('work'), /已恢复原配置/);
+    assert.strictEqual(fs.readFileSync(env.codexConfig, 'utf8'), EXISTING_CONFIG);
+    assert.strictEqual(JSON.parse(fs.readFileSync(env.codexAuth, 'utf8')).OPENAI_API_KEY, 'old-key');
+    assert.strictEqual(env.codexState.readCurrentProfile(), null);
+  } finally {
+    fs.renameSync = originalRename;
+    env.cleanup();
+  }
+});
+
 test('applyProfile 拒绝被手工改坏的配置档（含本机状态 section）', () => {
   const env = setupEnv('clis-test-codex-bad-');
   try {
@@ -198,6 +254,25 @@ test('applyProfile 拒绝被手工改坏的配置档（含本机状态 section�
     assert.throws(() => applyProfile('bad'), /不允许的 section/);
     // 未写入任何生效配置
     assert.ok(!fs.existsSync(env.codexConfig));
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('applyProfile 在凭据损坏时不修改当前生效配置', () => {
+  const env = setupEnv('clis-test-codex-apply-bad-auth-');
+  try {
+    fs.mkdirSync(process.env.CODEX_HOME, { recursive: true });
+    fs.writeFileSync(env.codexConfig, EXISTING_CONFIG);
+    fs.writeFileSync(env.codexAuth, JSON.stringify({ OPENAI_API_KEY: 'old-key' }));
+    env.store.createProfile('bad', { toml: NEW_PROFILE_TOML, auth: { OPENAI_API_KEY: 'new-key' } });
+    const profileAuth = path.join(process.env.CLIS_CONFIG_HOME, 'codex', 'profiles', 'bad', 'auth.json');
+    fs.writeFileSync(profileAuth, '{bad json');
+
+    assert.throws(() => applyProfile('bad'), /auth\.json 损坏/);
+    assert.strictEqual(fs.readFileSync(env.codexConfig, 'utf8'), EXISTING_CONFIG);
+    assert.strictEqual(JSON.parse(fs.readFileSync(env.codexAuth, 'utf8')).OPENAI_API_KEY, 'old-key');
+    assert.strictEqual(env.codexState.readCurrentProfile(), null);
   } finally {
     env.cleanup();
   }
@@ -219,6 +294,18 @@ test('copy current：提取受管 TOML 与 auth，目标独立', () => {
     // 修改来源不影响已复制内容
     fs.writeFileSync(env.codexConfig, 'model = "changed"\n');
     assert.match(env.store.readConfigToml('copied'), /old-model/);
+  } finally {
+    env.cleanup();
+  }
+});
+
+test('copy current：损坏的 auth.json 必须报错，不能静默复制为无密钥配置档', () => {
+  const env = setupEnv('clis-test-codex-copy-bad-auth-');
+  try {
+    fs.mkdirSync(process.env.CODEX_HOME, { recursive: true });
+    fs.writeFileSync(env.codexConfig, EXISTING_CONFIG);
+    fs.writeFileSync(env.codexAuth, '{bad json');
+    assert.throws(() => readSourceProfile('current'), /auth\.json 损坏或无法读取/);
   } finally {
     env.cleanup();
   }

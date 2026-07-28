@@ -45,7 +45,14 @@ function listProfiles() {
 function readSettings(name) {
   assertValidProfileName(name);
   const raw = fs.readFileSync(paths.profileSettingsFile(name), 'utf8');
-  return JSON.parse(raw);
+  return assertValidSettings(JSON.parse(raw));
+}
+
+function assertValidSettings(settings) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    throw new Error('Claude settings 必须是 JSON 对象');
+  }
+  return settings;
 }
 
 function readMeta(name) {
@@ -66,6 +73,7 @@ function createProfile(name, settings, { overwrite = false } = {}) {
   if (!overwrite && profileExists(name)) {
     throw new Error(`配置档已存在: ${name}`);
   }
+  assertValidSettings(settings);
   // 序列化校验：确保可被 JSON 表达。
   const settingsJson = JSON.stringify(settings, null, 2);
   JSON.parse(settingsJson);
@@ -150,4 +158,5 @@ module.exports = {
   deleteProfile,
   touchLastUsed,
   summarize,
+  assertValidSettings,
 };

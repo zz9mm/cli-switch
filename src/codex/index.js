@@ -6,6 +6,7 @@ const { runDelete } = require('./delete');
 const { runUse, runCurrent } = require('./use');
 const { runCopy } = require('./copy');
 const { runShow, runEdit } = require('./show');
+const { parseCommandArgs } = require('../lib/args');
 
 /**
  * Codex 引导菜单（从顶层菜单进入后调用）。
@@ -52,45 +53,50 @@ function swallowCancel(err) {
   throw err;
 }
 
-// 从参数中分离出标志（--xxx）与位置参数。
-function parseArgs(args) {
-  const flags = new Set();
-  const positional = [];
-  for (const a of args) {
-    if (a.startsWith('--')) flags.add(a.slice(2));
-    else positional.push(a);
-  }
-  return { flags, positional };
-}
-
 /**
  * Codex 非交互子命令：clis codex <sub> [args...]
  */
 async function codexCommand(args) {
   const [sub, ...rest] = args;
   switch (sub) {
-    case 'create':
-      await runCreate(rest[0]);
+    case 'create': {
+      const { positional } = parseCommandArgs(rest, { positionalCounts: [0, 1], usage: 'clis codex create [名称]' });
+      await runCreate(positional[0]);
       break;
-    case 'use':
-      await runUse(rest[0]);
+    }
+    case 'use': {
+      const { positional } = parseCommandArgs(rest, { positionalCounts: [0, 1], usage: 'clis codex use [名称]' });
+      await runUse(positional[0]);
       break;
+    }
     case 'current':
+      parseCommandArgs(rest, { positionalCounts: [0], usage: 'clis codex current' });
       runCurrent();
       break;
     case 'copy': {
-      const { positional } = parseArgs(rest);
+      const { positional } = parseCommandArgs(rest, {
+        positionalCounts: [0, 2],
+        usage: 'clis codex copy [<来源名称|current> <新名称>]',
+      });
       await runCopy(positional[0], positional[1]);
       break;
     }
-    case 'show':
-      await runShow(rest[0]);
+    case 'show': {
+      const { positional } = parseCommandArgs(rest, { positionalCounts: [0, 1], usage: 'clis codex show [名称]' });
+      await runShow(positional[0]);
       break;
-    case 'edit':
-      await runEdit(rest[0]);
+    }
+    case 'edit': {
+      const { positional } = parseCommandArgs(rest, { positionalCounts: [0, 1], usage: 'clis codex edit [名称]' });
+      await runEdit(positional[0]);
       break;
+    }
     case 'delete': {
-      const { flags, positional } = parseArgs(rest);
+      const { flags, positional } = parseCommandArgs(rest, {
+        allowedFlags: ['yes'],
+        positionalCounts: [0, 1],
+        usage: 'clis codex delete [名称] [--yes]',
+      });
       await runDelete(positional[0], { yes: flags.has('yes') });
       break;
     }

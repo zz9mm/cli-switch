@@ -5,6 +5,7 @@ const path = require('path');
 const paths = require('../lib/paths');
 const { ensureDir, atomicWriteFile } = require('../lib/fsutil');
 const { assertValidProfileName, isValidProfileName } = require('../lib/validate');
+const { assertValidManagedToml } = require('../lib/toml');
 
 /**
  * Codex 配置档持久层。
@@ -53,10 +54,21 @@ function readConfigToml(name) {
 // 读取配置档的 auth.json；没有时返回 null（该配置档不管理密钥）。
 function readAuth(name) {
   assertValidProfileName(name);
+  let raw;
   try {
-    return JSON.parse(fs.readFileSync(paths.codexProfileAuthFile(name), 'utf8'));
-  } catch {
-    return null;
+    raw = fs.readFileSync(paths.codexProfileAuthFile(name), 'utf8');
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null;
+    throw new Error(`无法读取配置档 auth.json: ${name}（${err.message}）`);
+  }
+  try {
+    const auth = JSON.parse(raw);
+    if (!auth || typeof auth !== 'object' || Array.isArray(auth)) {
+      throw new Error('根值必须是对象');
+    }
+    return auth;
+  } catch (err) {
+    throw new Error(`配置档 auth.json 损坏: ${name}（${err.message}）`);
   }
 }
 
@@ -71,13 +83,17 @@ function readMeta(name) {
 
 /**
  * 创建新配置档。若同名已存在且未显式 overwrite，则抛错。
- * @param {string} toml 受管 TOML 片段文本（调用方需已通过 assertValidManagedToml）。
+ * @param {string} toml 受管 TOML 片段文本（存储边界会统一校验）。
  * @param {object|null} auth auth.json 内容（{ OPENAI_API_KEY }），null 表示不管理密钥。
  */
 function createProfile(name, { toml, auth = null }, { overwrite = false } = {}) {
   assertValidProfileName(name);
   if (!overwrite && profileExists(name)) {
     throw new Error(`配置档已存在: ${name}`);
+  }
+  assertValidManagedToml(toml);
+  if (auth && (typeof auth !== 'object' || Array.isArray(auth))) {
+    throw new Error('Codex auth 必须是 JSON 对象或 null');
   }
 
   const now = new Date().toISOString();

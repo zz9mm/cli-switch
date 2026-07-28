@@ -1,5 +1,8 @@
 'use strict';
 
+const http = require('http');
+const https = require('https');
+
 /**
  * 从 Anthropic 兼容端点动态拉取可用模型列表。
  *
@@ -42,36 +45,62 @@ function extractModelIds(payload) {
  */
 async function fetchModels(baseUrl, { authType = 'api_key', key, timeoutMs = 10000 } = {}) {
   const url = modelsUrl(baseUrl);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let res;
-  try {
-    res = await fetch(url, {
-      method: 'GET',
-      headers: buildHeaders(authType, key),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    clearTimeout(timer);
-    if (err && err.name === 'AbortError') {
-      throw new Error(`请求超时（${timeoutMs}ms）`);
-    }
-    throw new Error(`无法连接端点: ${err.message}`);
-  }
-  clearTimeout(timer);
-
-  if (!res.ok) {
-    // 不读取/输出响应体，避免回显敏感信息；仅暴露状态码。
-    throw new Error(`端点返回 HTTP ${res.status}`);
-  }
-
-  let payload;
-  try {
-    payload = await res.json();
-  } catch {
-    throw new Error('端点返回的不是有效 JSON');
-  }
+  const payload = await requestJson(url, buildHeaders(authType, key), timeoutMs);
   return extractModelIds(payload);
+}
+
+// 使用 Node 内置 HTTP 客户端，避免依赖 Node 18 才默认提供的全局 fetch。
+function requestJson(url, headers, timeoutMs, redirectsLeft = 5) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const transport = parsed.protocol === 'https:' ? https : http;
+    const req = transport.get(parsed, { headers }, (res) => {
+      const status = res.statusCode || 0;
+      if (status >= 300 && status < 400 && res.headers.location) {
+        res.resume();
+        if (redirectsLeft === 0) {
+          reject(new Error('端点重定向次数过多'));
+          return;
+        }
+        const next = new URL(res.headers.location, parsed);
+        if (next.host !== parsed.host) {
+          reject(new Error('端点重定向到不同主机，已拒绝发送鉴权信息'));
+          return;
+        }
+        requestJson(next.toString(), headers, timeoutMs, redirectsLeft - 1).then(resolve, reject);
+        return;
+      }
+      if (status < 200 || status >= 300) {
+        res.resume();
+        reject(new Error(`端点返回 HTTP ${status}`));
+        return;
+      }
+
+      const chunks = [];
+      let size = 0;
+      res.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > 5 * 1024 * 1024) {
+          req.destroy(new Error('端点响应过大'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        } catch {
+          reject(new Error('端点返回的不是有效 JSON'));
+        }
+      });
+      res.on('error', (err) => reject(new Error(`读取端点响应失败: ${err.message}`)));
+    });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`请求超时（${timeoutMs}ms）`)));
+    req.on('error', (err) => {
+      if (/^(请求超时|端点响应过大)/.test(err.message)) reject(err);
+      else reject(new Error(`无法连接端点: ${err.message}`));
+    });
+  });
 }
 
 module.exports = { fetchModels, modelsUrl, extractModelIds };

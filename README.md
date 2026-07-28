@@ -25,6 +25,7 @@ clis          # 选择 “Claude Code” → “创建配置档”
 非交互入口：
 
 ```bash
+clis --help
 clis claude create <名称>
 clis claude use <名称>            # 切换为指定配置档（先备份现有配置）
 clis claude current               # 显示当前由 clis 应用的配置档
@@ -144,6 +145,7 @@ src/lib/               共享模块
   toml.js              行级 TOML 子集处理（受管合并，保留本机状态）
   editor.js            $EDITOR 临时文件编辑
   prompt.js            零依赖交互提示（text/password/select/confirm）
+  args.js              子命令参数与选项校验
 test/                  node:test 单元测试
 ```
 

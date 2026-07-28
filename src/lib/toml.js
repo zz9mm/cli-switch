@@ -23,7 +23,7 @@ function normalizeSectionName(name) {
 
 const KEY_RE = /^\s*([A-Za-z0-9_.-]+)\s*=/;
 // section 头允许行尾注释（如 [model_providers.x] # 注释），否则整段会被误判为 preamble。
-const HEADER_RE = /^\s*\[\[?\s*([^\]]+?)\s*\]?\]\s*(#.*)?$/;
+const HEADER_RE = /^\s*(?:\[\[\s*([^\[\]]+?)\s*\]\]|\[\s*([^\[\]]+?)\s*\])\s*(?:#.*)?$/;
 
 /**
  * 把 TOML 文本切分为 preamble（首个 section 之前的顶层内容）与 sections。
@@ -41,7 +41,7 @@ function splitToml(text) {
   for (const line of lines) {
     const header = line.match(HEADER_RE);
     if (header) {
-      current = { name: header[1].trim(), lines: [line] };
+      current = { name: (header[1] || header[2]).trim(), lines: [line], array: Boolean(header[1]) };
       sections.push(current);
       continue;
     }
@@ -58,7 +58,9 @@ function splitToml(text) {
 
 // 该 section 是否属于 clis 受管范围（[model_providers.*]）。
 function isManagedSection(name) {
-  return normalizeSectionName(name).startsWith(MANAGED_SECTION_PREFIX);
+  const normalized = normalizeSectionName(name);
+  return normalized.startsWith(MANAGED_SECTION_PREFIX)
+    && normalized.length > MANAGED_SECTION_PREFIX.length;
 }
 
 // 去掉尾部空白行，避免拼接时出现连续空行。
@@ -117,16 +119,40 @@ function assertValidManagedToml(text) {
   if (!String(text || '').trim()) {
     throw new Error('配置内容为空');
   }
-  const { preambleKeys, sections } = splitToml(text);
-  for (const key of preambleKeys) {
-    if (!MANAGED_TOP_KEYS.includes(key)) {
-      throw new Error(`不允许的顶层键: ${key}（仅支持 ${MANAGED_TOP_KEYS.join('、')}）`);
+  let section = null;
+  let hasManagedContent = false;
+  for (const [index, line] of String(text).split('\n').entries()) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const header = line.match(HEADER_RE);
+    if (header) {
+      if (header[1]) {
+        throw new Error(`第 ${index + 1} 行不允许数组 section`);
+      }
+      section = (header[1] || header[2]).trim();
+      if (!isManagedSection(section)) {
+        throw new Error(`不允许的 section: [${section}]（仅支持 [model_providers.*]）`);
+      }
+      hasManagedContent = true;
+      continue;
     }
+
+    const kv = line.match(KEY_RE);
+    if (!kv) {
+      throw new Error(`第 ${index + 1} 行不是可识别的键值或 section`);
+    }
+    const value = line.slice(line.indexOf('=') + 1).trim();
+    if (!value || value.startsWith('#')) {
+      throw new Error(`第 ${index + 1} 行的键 ${kv[1]} 缺少值`);
+    }
+    if (!section && !MANAGED_TOP_KEYS.includes(kv[1])) {
+      throw new Error(`不允许的顶层键: ${kv[1]}（仅支持 ${MANAGED_TOP_KEYS.join('、')}）`);
+    }
+    hasManagedContent = true;
   }
-  for (const s of sections) {
-    if (!isManagedSection(s.name)) {
-      throw new Error(`不允许的 section: [${s.name}]（仅支持 [model_providers.*]）`);
-    }
+  if (!hasManagedContent) {
+    throw new Error('配置中没有任何受管键或 provider section');
   }
 }
 

@@ -35,7 +35,7 @@ function readSourceSettings(source) {
       throw new Error('当前 Claude Code 配置不存在（~/.claude/settings.json）');
     }
     try {
-      return JSON.parse(raw);
+      return profiles.assertValidSettings(JSON.parse(raw));
     } catch (err) {
       throw new Error(`当前配置 JSON 损坏，已中止复制: ${err.message}`);
     }

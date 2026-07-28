@@ -32,8 +32,11 @@ function readSourceProfile(source) {
     let raw;
     try {
       raw = fs.readFileSync(paths.codexConfigFile(), 'utf8');
-    } catch {
-      throw new Error('当前 Codex 配置不存在（~/.codex/config.toml）');
+    } catch (err) {
+      if (err && err.code === 'ENOENT') {
+        throw new Error('当前 Codex 配置不存在（~/.codex/config.toml）');
+      }
+      throw new Error(`无法读取当前 Codex 配置（${err.message}）`);
     }
     const toml = extractManagedToml(raw);
     if (!toml.trim()) {
@@ -41,9 +44,15 @@ function readSourceProfile(source) {
     }
     let auth = null;
     try {
-      auth = JSON.parse(fs.readFileSync(paths.codexAuthFile(), 'utf8'));
-    } catch {
-      // 没有 auth.json：来源不管理密钥。
+      const authRaw = fs.readFileSync(paths.codexAuthFile(), 'utf8');
+      auth = JSON.parse(authRaw);
+      if (!auth || typeof auth !== 'object' || Array.isArray(auth)) {
+        throw new Error('根值必须是对象');
+      }
+    } catch (err) {
+      if (!err || err.code !== 'ENOENT') {
+        throw new Error(`当前 Codex auth.json 损坏或无法读取（${err.message}）`);
+      }
     }
     return { toml, auth };
   }

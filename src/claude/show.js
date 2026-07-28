@@ -175,6 +175,7 @@ async function editViaEditor(name) {
   let parsed;
   try {
     parsed = JSON.parse(edited);
+    profiles.assertValidSettings(parsed);
   } catch (err) {
     console.log(`JSON 校验失败（${err.message}），配置档未修改。`);
     return;

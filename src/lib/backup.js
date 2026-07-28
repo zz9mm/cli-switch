@@ -23,8 +23,9 @@ function backupFile(src, dir, baseName, stamp) {
   let raw;
   try {
     raw = fs.readFileSync(src);
-  } catch {
-    return null;
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null;
+    throw new Error(`无法读取待备份文件 ${src}（${err.message}）`);
   }
   ensureDir(dir, 0o700);
   let dest = path.join(dir, `${baseName}-${stamp}${path.extname(src)}`);

@@ -4,7 +4,7 @@ type: decision
 title: Codex 配置档采用受管合并而非整文件覆盖
 status: active
 created: 2026-07-26
-updated: 2026-07-26
+updated: 2026-07-28
 tags: [clis, codex, profile, toml]
 ---
 
@@ -37,6 +37,9 @@ tags: [clis, codex, profile, toml]
 - 受管范围白名单：4 个模型顶层键 + `[model_providers.*]` section；其余内容一律不属于配置档。
 - `src/lib/toml.js` 行级切分合并（splitToml / mergeConfig），不做完整 TOML 解析，保持零依赖。
 - 编辑器模式录入用 `assertValidManagedToml` 守住边界：禁止把本机状态写进配置档。
+- `src/codex/store.js` 是配置档完整性的最终边界：无论来源是创建、复制还是编辑，写入前都统一校验受管 TOML 与 auth 对象，不能依赖调用方记得校验。
+- 应用配置档时先完整读取并校验 TOML、auth.json 与现有 config.toml，再备份和写入；auth.json 仅在 `ENOENT` 时表示“不管理密钥”，损坏或权限错误必须中止，不能降级为无密钥配置。
+- config.toml 与 auth.json 是同一次切换的生效单元；任一写入失败时自动恢复切换前内容，避免产生新配置配旧密钥的混合状态。
 - 引导编辑只处理标准单 provider 结构（section 内字段 ⊆ name/base_url/wire_api/requires_openai_auth），否则提示改用编辑器模式，防止重建时静默丢弃高级字段。
 - auth.json 独立成档：允许「不管理密钥」的配置档（走环境变量）。
 

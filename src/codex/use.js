@@ -57,22 +57,24 @@ function applyProfile(name) {
 
   const toml = store.readConfigToml(name);
   assertValidManagedToml(toml); // 配置档被手工改坏时中止切换
+  const auth = store.readAuth(name); // 凭据也必须在修改生效文件前完成校验
+
+  const existingConfig = readOptionalFile(paths.codexConfigFile(), '当前 Codex config.toml');
+  const existingAuth = readOptionalFile(paths.codexAuthFile(), '当前 Codex auth.json');
 
   const backup = backupCodexConfig();
 
   ensureDir(paths.codexHome(), 0o700);
-  let existing = '';
   try {
-    existing = fs.readFileSync(paths.codexConfigFile(), 'utf8');
-  } catch {
-    // 尚无 config.toml，视为空。
+    atomicWriteFile(paths.codexConfigFile(), mergeConfig(existingConfig || '', toml), 0o600);
+    if (auth) {
+      atomicWriteFile(paths.codexAuthFile(), JSON.stringify(auth, null, 2) + '\n', 0o600);
+    }
+  } catch (err) {
+    rollbackAppliedFiles(existingConfig, auth ? existingAuth : undefined, backup, err);
   }
-  atomicWriteFile(paths.codexConfigFile(), mergeConfig(existing, toml), 0o600);
 
-  const auth = store.readAuth(name);
-  if (auth) {
-    atomicWriteFile(paths.codexAuthFile(), JSON.stringify(auth, null, 2) + '\n', 0o600);
-  } else if (fs.existsSync(paths.codexAuthFile())) {
+  if (!auth && existingAuth !== null) {
     // 配置档不管理密钥：旧 key 仍留在 auth.json 并优先生效，必须让用户知情。
     console.log('警告：该配置档不管理密钥，现有 ~/.codex/auth.json 仍保留旧密钥，将优先于环境变量生效。');
     console.log('      如需走环境变量，请先从备份中恢复或删除该文件。');
@@ -81,6 +83,40 @@ function applyProfile(name) {
   store.touchLastUsed(name);
   codexState.setCurrentProfile(name);
   return { backup };
+}
+
+function readOptionalFile(filePath, label) {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null;
+    throw new Error(`无法读取${label}（${err.message}）`);
+  }
+}
+
+function restoreFile(filePath, previous) {
+  if (previous === null) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch (err) {
+      if (!err || err.code !== 'ENOENT') throw err;
+    }
+    return;
+  }
+  atomicWriteFile(filePath, previous, 0o600);
+}
+
+function rollbackAppliedFiles(existingConfig, existingAuth, backup, originalError) {
+  const failures = [];
+  try { restoreFile(paths.codexConfigFile(), existingConfig); } catch (err) { failures.push(err.message); }
+  if (existingAuth !== undefined) {
+    try { restoreFile(paths.codexAuthFile(), existingAuth); } catch (err) { failures.push(err.message); }
+  }
+  if (failures.length) {
+    const backupHint = [backup.configPath, backup.authPath].filter(Boolean).join('、');
+    throw new Error(`切换失败且自动恢复不完整: ${originalError.message}；恢复错误: ${failures.join('；')}；备份: ${backupHint}`);
+  }
+  throw new Error(`切换失败，已恢复原配置: ${originalError.message}`);
 }
 
 function printApplied(name, backup) {

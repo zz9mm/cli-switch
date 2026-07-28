@@ -3,13 +3,15 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
+const http = require('http');
+const { EventEmitter } = require('events');
 const os = require('os');
 const path = require('path');
 
 const { isValidProfileName, isValidApiUrl } = require('../src/lib/validate');
 const { maskSecret, maskSettingsForDisplay } = require('../src/lib/mask');
 const { buildSettings } = require('../src/claude/create');
-const { modelsUrl, extractModelIds } = require('../src/lib/models');
+const { fetchModels, modelsUrl, extractModelIds } = require('../src/lib/models');
 const { backupClaudeSettings } = require('../src/lib/backup');
 const { applyProfile } = require('../src/claude/use');
 const { readSourceSettings, deepCopy } = require('../src/claude/copy');
@@ -122,6 +124,41 @@ test('extractModelIds 兼容 data/models 两种结构并去重', () => {
   assert.deepStrictEqual(extractModelIds({ data: 'nope' }), []);
 });
 
+test('fetchModels 在 Node 16 兼容的内置 HTTP 客户端上发送正确鉴权并解析响应', async () => {
+  const requests = [];
+  const originalGet = http.get;
+  http.get = (_url, { headers }, onResponse) => {
+    requests.push(headers);
+    const req = new EventEmitter();
+    req.setTimeout = () => {};
+    req.destroy = (err) => req.emit('error', err);
+    process.nextTick(() => {
+      const res = new EventEmitter();
+      res.statusCode = 200;
+      res.headers = {};
+      res.resume = () => {};
+      onResponse(res);
+      res.emit('data', Buffer.from(JSON.stringify({ data: [{ id: 'model-a' }, { id: 'model-b' }] })));
+      res.emit('end');
+    });
+    return req;
+  };
+  try {
+    assert.deepStrictEqual(
+      await fetchModels('http://models.test', { authType: 'api_key', key: 'secret-key' }),
+      ['model-a', 'model-b'],
+    );
+    assert.strictEqual(requests[0]['x-api-key'], 'secret-key');
+    assert.strictEqual(requests[0]['anthropic-version'], '2023-06-01');
+
+    await fetchModels('http://models.test', { authType: 'bearer', key: 'bearer-key' });
+    assert.strictEqual(requests[1].Authorization, 'Bearer bearer-key');
+    assert.ok(!requests[1]['x-api-key']);
+  } finally {
+    http.get = originalGet;
+  }
+});
+
 test('createProfile 原子写入并设置权限', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'clis-test-'));
   process.env.CLIS_CONFIG_HOME = tmp;
@@ -146,6 +183,7 @@ test('createProfile 原子写入并设置权限', () => {
 
   // 重复创建应报错
   assert.throws(() => profiles.createProfile('demo', settings), /已存在/);
+  assert.throws(() => profiles.createProfile('array', []), /settings 必须是 JSON 对象/);
 
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.CLIS_CONFIG_HOME;
@@ -317,6 +355,8 @@ test('copy current：当前配置不存在或损坏时报错', () => {
     assert.throws(() => readSourceSettings('current'), /不存在/);
     fs.mkdirSync(process.env.CLAUDE_HOME, { recursive: true });
     fs.writeFileSync(env.claudeSettings, '{bad');
+    assert.throws(() => readSourceSettings('current'), /损坏/);
+    fs.writeFileSync(env.claudeSettings, '[]');
     assert.throws(() => readSourceSettings('current'), /损坏/);
   } finally {
     env.cleanup();

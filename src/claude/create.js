@@ -210,6 +210,7 @@ async function editorInput() {
   let parsed;
   try {
     parsed = JSON.parse(edited);
+    profiles.assertValidSettings(parsed);
   } catch (err) {
     throw new Error(`JSON 校验失败: ${err.message}`);
   }
